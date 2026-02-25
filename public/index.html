@@ -1,204 +1,723 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Stick War Lite PvP</title>
-  <style>
-    body{margin:0;background:#0b1020;color:#e9ecff;font-family:system-ui,Arial}
-    .wrap{max-width:980px;margin:0 auto;padding:12px}
-    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-    input,button{font-size:16px;border-radius:14px;border:1px solid #2a3766;background:#0e1530;color:#e9ecff;padding:12px 14px}
-    button{cursor:pointer}
-    .badge{display:inline-block;padding:6px 10px;border-radius:999px;border:1px solid #2a3766;background:#0e1530;font-size:13px;opacity:.9}
-    canvas{width:100%;max-width:960px;background:#0e1530;border:1px solid #2a3766;border-radius:16px;display:block;touch-action:none}
-    .panel{
-      display:grid; grid-template-columns: repeat(5, 1fr);
-      gap:10px; margin-top:10px;
-    }
-    .big{padding:16px 10px;font-weight:700}
-    .tiny{opacity:.8;font-size:13px;line-height:1.4}
-    .two{grid-column: span 2;}
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="theme-color" content="#0a0d1a"/>
+<title>⚔️ Stick War Online</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet"/>
+<style>
+/* ─── Reset + Base ──────────────────────────────────────────────── */
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --gold:#c9a84c;
+  --gold2:#f5d27a;
+  --red:#e05555;
+  --blue:#4a8fff;
+  --bg:#07091a;
+  --panel:#0d1128;
+  --border:#1e2a56;
+  --text:#d8e0ff;
+  --muted:#6b7bb0;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;user-select:none}
+
+/* ─── Screens ────────────────────────────────────────────────────── */
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;gap:16px;transition:opacity .3s}
+.screen.hidden{opacity:0;pointer-events:none}
+
+/* ─── Lobby ──────────────────────────────────────────────────────── */
+#lobby{background:var(--bg);background-image:
+  radial-gradient(ellipse 60% 40% at 50% -10%, rgba(201,168,76,0.12) 0%, transparent 70%),
+  repeating-linear-gradient(0deg, transparent, transparent 49px, rgba(30,42,86,0.3) 50px),
+  repeating-linear-gradient(90deg, transparent, transparent 49px, rgba(30,42,86,0.15) 50px);}
+
+.logo{font-family:'Cinzel',serif;font-size:clamp(28px,7vw,52px);font-weight:900;text-align:center;line-height:1.1;
+  background:linear-gradient(135deg,#c9a84c 0%,#f5d27a 40%,#c9a84c 80%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  filter:drop-shadow(0 0 30px rgba(201,168,76,0.4));margin-bottom:8px}
+.logo-sub{font-size:clamp(11px,2.5vw,16px);color:var(--muted);letter-spacing:4px;text-transform:uppercase}
+
+.lobby-card{background:rgba(13,17,40,0.9);border:1px solid var(--border);border-radius:20px;padding:24px;width:100%;max-width:360px;display:flex;flex-direction:column;gap:12px}
+.lobby-card h3{font-family:'Cinzel',serif;font-size:14px;color:var(--gold);letter-spacing:2px;text-transform:uppercase;text-align:center;margin-bottom:4px}
+
+.inp{background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:12px;color:var(--text);font-size:18px;padding:14px 16px;width:100%;font-family:'Rajdhani',sans-serif;font-weight:600;outline:none;text-transform:uppercase;letter-spacing:2px}
+.inp:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(201,168,76,0.15)}
+.inp::placeholder{color:var(--muted);font-weight:400;text-transform:none;letter-spacing:1px}
+
+.btn{cursor:pointer;border:none;border-radius:12px;font-family:'Rajdhani',sans-serif;font-weight:700;font-size:16px;padding:14px 20px;width:100%;letter-spacing:1px;text-transform:uppercase;transition:transform .1s,filter .1s;active-scale:.97}
+.btn:active{transform:scale(.97)}
+
+.btn-gold{background:linear-gradient(135deg,#b8902e,#c9a84c,#e8c97a);color:#1a1000;box-shadow:0 4px 20px rgba(201,168,76,0.3)}
+.btn-gold:hover{filter:brightness(1.1)}
+.btn-ghost{background:rgba(255,255,255,0.06);border:1px solid var(--border);color:var(--text)}
+.btn-ghost:hover{background:rgba(255,255,255,0.1)}
+.btn-red{background:linear-gradient(135deg,#c0392b,#e05555);color:#fff;box-shadow:0 4px 20px rgba(224,85,85,0.3)}
+.btn-blue{background:linear-gradient(135deg,#2255cc,#4a8fff);color:#fff;box-shadow:0 4px 20px rgba(74,143,255,0.3)}
+
+.divider{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px;letter-spacing:2px}
+.divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--border)}
+
+/* ─── Waiting ────────────────────────────────────────────────────── */
+#waiting{background:var(--bg)}
+.room-code{font-family:'Cinzel',serif;font-size:48px;font-weight:900;letter-spacing:8px;color:var(--gold);margin:8px 0}
+.pulse{animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+/* ─── Game Screen ────────────────────────────────────────────────── */
+#game{padding:0;justify-content:flex-start;background:var(--bg)}
+
+/* ─── HUD top ────────────────────────────────────────────────────── */
+#hud{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:rgba(7,9,26,0.95);border-bottom:1px solid var(--border);gap:6px;position:relative;z-index:10}
+
+.hud-side{display:flex;flex-direction:column;align-items:flex-start;gap:2px;flex:1}
+.hud-side.right{align-items:flex-end}
+
+.hud-name{font-family:'Cinzel',serif;font-size:11px;font-weight:700;letter-spacing:1px}
+.hud-name.a{color:var(--red)}
+.hud-name.b{color:var(--blue)}
+
+.base-bar-wrap{width:130px;height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden}
+.base-bar{height:100%;border-radius:4px;transition:width .3s}
+.base-bar.a{background:linear-gradient(90deg,#c0392b,#e05555);float:right}
+.base-bar.b{background:linear-gradient(90deg,#2255cc,#4a8fff)}
+
+.hud-res{display:flex;gap:8px;align-items:center}
+.res-chip{display:flex;align-items:center;gap:3px;background:rgba(255,255,255,0.06);border:1px solid var(--border);border-radius:8px;padding:3px 8px;font-size:12px;font-weight:700;white-space:nowrap}
+.res-chip .icon{font-size:11px}
+
+.hud-center{display:flex;flex-direction:column;align-items:center;gap:2px}
+.timer-badge{font-family:'Cinzel',serif;font-size:11px;color:var(--muted);background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:3px 10px}
+.mode-badge{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted)}
+
+/* ─── Canvas ─────────────────────────────────────────────────────── */
+#cv{display:block;width:100%;image-rendering:pixelated;flex-shrink:0;touch-action:none}
+
+/* ─── Bottom Panel ───────────────────────────────────────────────── */
+#panel{background:rgba(7,9,26,0.97);border-top:1px solid var(--border);padding:8px 8px 12px;display:flex;flex-direction:column;gap:8px}
+
+/* Mode buttons */
+.mode-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mode-btn{cursor:pointer;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,0.04);color:var(--text);font-family:'Rajdhani',sans-serif;font-weight:700;font-size:13px;letter-spacing:1px;padding:10px 6px;display:flex;align-items:center;justify-content:center;gap:6px;transition:all .15s;position:relative;overflow:hidden}
+.mode-btn:active{transform:scale(.97)}
+.mode-btn.active-attack{background:rgba(224,85,85,0.15);border-color:var(--red);color:var(--red);box-shadow:0 0 16px rgba(224,85,85,0.2)}
+.mode-btn.active-defend{background:rgba(74,143,255,0.15);border-color:var(--blue);color:var(--blue);box-shadow:0 0 16px rgba(74,143,255,0.2)}
+
+/* Unit buttons */
+.units-row{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.unit-btn{cursor:pointer;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,0.04);color:var(--text);font-family:'Rajdhani',sans-serif;padding:8px 4px;display:flex;flex-direction:column;align-items:center;gap:3px;transition:all .15s;position:relative;overflow:hidden}
+.unit-btn:active{transform:scale(.95)}
+.unit-btn:disabled,.unit-btn.cant-afford{opacity:.4;filter:grayscale(.6)}
+.unit-btn .u-icon{font-size:20px;line-height:1}
+.unit-btn .u-name{font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)}
+.unit-btn .u-cost{font-size:11px;font-weight:700;color:var(--gold);display:flex;align-items:center;gap:2px}
+.unit-btn .u-pop{font-size:9px;color:var(--muted)}
+.unit-btn::after{content:'';position:absolute;inset:0;border-radius:12px;background:rgba(201,168,76,0.0);transition:background .1s}
+.unit-btn:active::after{background:rgba(201,168,76,0.1)}
+
+/* Flash animation */
+@keyframes flash{0%{background:rgba(201,168,76,0.3)}100%{background:transparent}}
+.unit-btn.flash{animation:flash .2s ease-out}
+
+/* Pop bar */
+.pop-row{display:flex;align-items:center;gap:8px;padding:0 2px}
+.pop-label{font-size:11px;color:var(--muted);width:28px;text-align:right}
+.pop-track{flex:1;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden}
+.pop-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--gold),var(--gold2));transition:width .3s}
+
+/* ─── Win overlay ────────────────────────────────────────────────── */
+#win-overlay{position:absolute;inset:0;background:rgba(7,9,26,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;z-index:100;opacity:0;pointer-events:none;transition:opacity .5s;backdrop-filter:blur(6px)}
+#win-overlay.show{opacity:1;pointer-events:all}
+.win-title{font-family:'Cinzel',serif;font-size:clamp(24px,6vw,48px);font-weight:900;text-align:center;line-height:1.2}
+.win-subtitle{font-size:16px;color:var(--muted);letter-spacing:2px}
+
+/* ─── Notif ──────────────────────────────────────────────────────── */
+#notif{position:fixed;top:80px;left:50%;transform:translateX(-50%);background:rgba(224,85,85,0.9);color:#fff;font-family:'Rajdhani',sans-serif;font-weight:700;font-size:14px;padding:8px 20px;border-radius:20px;letter-spacing:1px;transition:opacity .3s;opacity:0;pointer-events:none;z-index:200;white-space:nowrap}
+#notif.show{opacity:1}
+
+/* ─── Scrollable on super small phones ──────────────────────────── */
+@media(max-height:580px){
+  body{overflow:auto}
+  #game{position:relative;height:auto;overflow:visible}
+}
+</style>
 </head>
 <body>
-<div class="wrap">
-  <div class="row">
-    <button id="btnCreate">Создать</button>
-    <input id="inpRoom" placeholder="ROOM ID" />
-    <button id="btnJoin">Войти</button>
-    <button id="btnReset">Reset</button>
+
+<!-- ═══════════════════ LOBBY ══════════════════════════════════════ -->
+<div id="lobby" class="screen">
+  <div style="text-align:center">
+    <div class="logo">STICK WAR</div>
+    <div class="logo-sub">Online PvP</div>
   </div>
 
-  <div class="row" style="margin:10px 0">
-    <span class="badge" id="bConn">WS: —</span>
-    <span class="badge" id="bRoom">Room: —</span>
-    <span class="badge" id="bRole">Role: —</span>
-    <span class="badge" id="bGold">Gold: —</span>
-    <span class="badge" id="bPop">Pop: —</span>
+  <div class="lobby-card">
+    <h3>⚔️ Новая игра</h3>
+    <button class="btn btn-gold" id="btnCreate">Создать комнату</button>
+
+    <div class="divider">или войти</div>
+
+    <input class="inp" id="inpRoom" placeholder="Код комнаты" maxlength="6"/>
+    <button class="btn btn-ghost" id="btnJoin">Войти</button>
   </div>
 
-  <canvas id="cv" width="1000" height="380"></canvas>
-
-  <div class="panel">
-    <button class="big" id="btnMiner">⛏ Miner<br><span style="opacity:.8">50</span></button>
-    <button class="big" id="btnSword">🗡 Sword<br><span style="opacity:.8">120</span></button>
-    <button class="big" id="btnArcher">🏹 Archer<br><span style="opacity:.8">170</span></button>
-
-    <button class="big" id="btnAttack">⚔️ ATTACK</button>
-    <button class="big" id="btnDefend">🛡 DEFEND</button>
-  </div>
-
-  <p class="tiny">
-    Это “Stick War Lite”: юниты сами идут и дерутся. Ты управляешь спавном армии и режимом.
-    Следующий шаг: спец-скилл (заморозка/бафф), больше юнитов и апгрейды.
+  <p style="font-size:12px;color:var(--muted);text-align:center;max-width:280px;line-height:1.6">
+    Поделись кодом комнаты с другом.<br/>Оба подключаетесь — игра начинается.
   </p>
 </div>
 
+<!-- ═══════════════════ WAITING ════════════════════════════════════ -->
+<div id="waiting" class="screen hidden">
+  <div style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:16px">
+    <div class="logo" style="font-size:24px">⚔️ STICK WAR</div>
+    <div style="font-size:14px;color:var(--muted);letter-spacing:2px">КОД КОМНАТЫ</div>
+    <div class="room-code" id="roomCodeDisplay">———</div>
+    <div style="font-size:13px;color:var(--muted)" class="pulse">Ждём второго игрока…</div>
+
+    <button class="btn btn-gold" id="btnCopyCode" style="max-width:240px">📋 Скопировать код</button>
+    <button class="btn btn-ghost" id="btnCancelWait" style="max-width:240px">Отмена</button>
+  </div>
+</div>
+
+<!-- ═══════════════════ GAME ════════════════════════════════════════ -->
+<div id="game" class="screen hidden" style="position:relative">
+  <!-- HUD -->
+  <div id="hud">
+    <div class="hud-side left">
+      <div class="hud-name a">🔴 ВЫ</div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <div class="base-bar-wrap"><div class="base-bar a" id="hpBarA" style="width:100%"></div></div>
+        <span id="hpNumA" style="font-size:11px;color:var(--muted)">800</span>
+      </div>
+      <div class="hud-res">
+        <div class="res-chip"><span class="icon">💰</span><span id="goldA">100</span></div>
+        <div class="res-chip"><span class="icon">👥</span><span id="popA">0</span></div>
+      </div>
+    </div>
+
+    <div class="hud-center">
+      <div class="timer-badge" id="timerBadge">PvP</div>
+      <div class="mode-badge" id="modeLabel">DEFEND</div>
+    </div>
+
+    <div class="hud-side right">
+      <div class="hud-name b" style="align-self:flex-end">ВРАГ 🔵</div>
+      <div style="display:flex;gap:6px;align-items:center;flex-direction:row-reverse">
+        <div class="base-bar-wrap"><div class="base-bar b" id="hpBarB" style="width:100%"></div></div>
+        <span id="hpNumB" style="font-size:11px;color:var(--muted)">800</span>
+      </div>
+      <div class="hud-res" style="flex-direction:row-reverse">
+        <div class="res-chip"><span class="icon">💰</span><span id="goldB">100</span></div>
+        <div class="res-chip"><span class="icon">👥</span><span id="popB">0</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Canvas -->
+  <canvas id="cv"></canvas>
+
+  <!-- Bottom Panel -->
+  <div id="panel">
+    <!-- Mode -->
+    <div class="mode-row">
+      <button class="mode-btn active-defend" id="btnDefend" ontouchstart="" onclick="sendMode('defend')">
+        🛡 ДЕРЖАТЬ ОБОРОНУ
+      </button>
+      <button class="mode-btn" id="btnAttack" ontouchstart="" onclick="sendMode('attack')">
+        ⚔️ В АТАКУ
+      </button>
+    </div>
+
+    <!-- Pop bar -->
+    <div class="pop-row">
+      <div class="pop-label" id="popLabel">0/10</div>
+      <div class="pop-track"><div class="pop-fill" id="popFill" style="width:0%"></div></div>
+      <div style="font-size:10px;color:var(--muted)">ПОП</div>
+    </div>
+
+    <!-- Units -->
+    <div class="units-row">
+      <button class="unit-btn" id="uMiner" onclick="spawnUnit('miner')">
+        <div class="u-icon">⛏️</div>
+        <div class="u-name">Шахтёр</div>
+        <div class="u-cost">💰 50</div>
+        <div class="u-pop">1 ед.</div>
+      </button>
+      <button class="unit-btn" id="uSword" onclick="spawnUnit('sword')">
+        <div class="u-icon">⚔️</div>
+        <div class="u-name">Мечник</div>
+        <div class="u-cost">💰 120</div>
+        <div class="u-pop">2 ед.</div>
+      </button>
+      <button class="unit-btn" id="uArcher" onclick="spawnUnit('archer')">
+        <div class="u-icon">🏹</div>
+        <div class="u-name">Лучник</div>
+        <div class="u-cost">💰 170</div>
+        <div class="u-pop">2 ед.</div>
+      </button>
+      <button class="unit-btn" id="uSpear" onclick="spawnUnit('spear')">
+        <div class="u-icon">🔱</div>
+        <div class="u-name">Копьё</div>
+        <div class="u-cost">💰 150</div>
+        <div class="u-pop">2 ед.</div>
+      </button>
+      <button class="unit-btn" id="uGiant" onclick="spawnUnit('giant')">
+        <div class="u-icon">🗿</div>
+        <div class="u-name">Гигант</div>
+        <div class="u-cost">💰 350</div>
+        <div class="u-pop">4 ед.</div>
+      </button>
+    </div>
+  </div>
+
+  <!-- Win overlay -->
+  <div id="win-overlay">
+    <div style="font-size:48px" id="winEmoji">🏆</div>
+    <div class="win-title" id="winTitle">ПОБЕДА!</div>
+    <div class="win-subtitle" id="winSub">Ты уничтожил базу врага</div>
+    <button class="btn btn-gold" style="max-width:240px" onclick="sendReset()">🔄 Играть снова</button>
+    <button class="btn btn-ghost" style="max-width:240px" onclick="goLobby()">🏠 В лобби</button>
+  </div>
+</div>
+
+<!-- Notification -->
+<div id="notif"></div>
+
 <script>
-  const WS_URL = (location.protocol === "https:")
-    ? `wss://${location.host}`
-    : `ws://${location.host}`;
+// ─── State ─────────────────────────────────────────────────────────────────
+const WS_URL = location.protocol === "https:" ? `wss://${location.host}` : `ws://${location.host}`;
+let ws, roomId, myRole, gameState, currentMode = "defend";
+let gameStartTime = 0;
 
-  const cv = document.getElementById("cv");
-  const ctx = cv.getContext("2d");
+// ─── Canvas setup ──────────────────────────────────────────────────────────
+const cv  = document.getElementById("cv");
+const ctx = cv.getContext("2d");
 
-  const bConn = document.getElementById("bConn");
-  const bRoom = document.getElementById("bRoom");
-  const bRole = document.getElementById("bRole");
-  const bGold = document.getElementById("bGold");
-  const bPop  = document.getElementById("bPop");
+function resizeCanvas() {
+  const hud   = document.getElementById("hud").offsetHeight;
+  const panel = document.getElementById("panel").offsetHeight;
+  const avail = window.innerHeight - hud - panel;
+  const W     = window.innerWidth;
+  const ratio = 1000 / 380;
+  const H     = Math.min(avail, W / ratio);
+  cv.width    = 1000;
+  cv.height   = 380;
+  cv.style.width  = W + "px";
+  cv.style.height = H + "px";
+}
 
-  const btnCreate = document.getElementById("btnCreate");
-  const btnJoin = document.getElementById("btnJoin");
-  const btnReset = document.getElementById("btnReset");
-  const inpRoom = document.getElementById("inpRoom");
+window.addEventListener("resize", resizeCanvas);
 
-  const btnMiner  = document.getElementById("btnMiner");
-  const btnSword  = document.getElementById("btnSword");
-  const btnArcher = document.getElementById("btnArcher");
-  const btnAttack = document.getElementById("btnAttack");
-  const btnDefend = document.getElementById("btnDefend");
+// ─── WebSocket ─────────────────────────────────────────────────────────────
+function connect() {
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (ev) => handleMsg(JSON.parse(ev.data));
+  ws.onclose   = () => showNotif("Соединение потеряно. Перезагрузи.", 5000);
+  ws.onerror   = () => showNotif("Ошибка соединения", 3000);
+}
 
-  let ws = null;
-  let roomId = null;
-  let role = null;
-  let state = null;
+function send(obj) { if (ws?.readyState === 1) ws.send(JSON.stringify(obj)); }
 
-  function connect(){
-    ws = new WebSocket(WS_URL);
-    bConn.textContent = "WS: connecting…";
-    ws.onopen = () => bConn.textContent = "WS: connected";
-
-    ws.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data);
-      if (msg.type === "joined"){
-        roomId = msg.roomId; role = msg.role;
-        bRoom.textContent = "Room: " + roomId;
-        bRole.textContent = "Role: " + role;
-      }
-      if (msg.type === "state"){
-        state = msg.state;
-        if (role){
-          bGold.textContent = "Gold: " + state.gold[role];
-          bPop.textContent  = "Pop: " + state.pop[role] + "/" + state.popCap[role];
-        }
-      }
-      if (msg.type === "error") alert(msg.msg);
-    };
-
-    ws.onclose = () => bConn.textContent = "WS: closed";
+function handleMsg(msg) {
+  if (msg.type === "joined") {
+    roomId = msg.roomId; myRole = msg.role;
+    if (myRole === "A") {
+      document.getElementById("roomCodeDisplay").textContent = roomId;
+      showScreen("waiting");
+    } else {
+      // B joined directly into game
+      gameStartTime = Date.now();
+      showScreen("game");
+      resizeCanvas();
+    }
   }
+  if (msg.type === "opponent_joined") {
+    gameStartTime = Date.now();
+    showScreen("game");
+    resizeCanvas();
+  }
+  if (msg.type === "state") {
+    gameState = msg.state;
+    updateHUD();
+    if (gameState.winner && !document.getElementById("win-overlay").classList.contains("show")) {
+      showWin(gameState.winner);
+    }
+  }
+  if (msg.type === "reset_ok") {
+    document.getElementById("win-overlay").classList.remove("show");
+    currentMode = "defend";
+    updateModeButtons();
+    gameStartTime = Date.now();
+  }
+  if (msg.type === "error") showNotif(msg.msg, 2000);
+}
 
+// ─── Screens ───────────────────────────────────────────────────────────────
+function showScreen(name) {
+  ["lobby","waiting","game"].forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.toggle("hidden", id !== name);
+  });
+}
+
+// ─── Lobby actions ─────────────────────────────────────────────────────────
+document.getElementById("btnCreate").onclick = () => {
   connect();
+  setTimeout(() => send({ type:"create" }), 200);
+};
 
-  btnCreate.onclick = () => ws.send(JSON.stringify({ type:"create" }));
-  btnJoin.onclick = () => ws.send(JSON.stringify({ type:"join", roomId: inpRoom.value }));
-  btnReset.onclick = () => ws.send(JSON.stringify({ type:"reset" }));
+document.getElementById("btnJoin").onclick = () => {
+  const code = document.getElementById("inpRoom").value.trim().toUpperCase();
+  if (!code) { showNotif("Введи код комнаты", 2000); return; }
+  connect();
+  setTimeout(() => send({ type:"join", roomId: code }), 200);
+};
 
-  function spawn(t){
-    if (!roomId || !role) return alert("Сначала создай/войти в комнату");
-    ws.send(JSON.stringify({ type:"spawn", unitType: t }));
+document.getElementById("btnCopyCode").onclick = () => {
+  navigator.clipboard?.writeText(roomId).then(() => showNotif("Код скопирован!", 1500));
+};
+
+document.getElementById("btnCancelWait").onclick = () => {
+  ws?.close(); showScreen("lobby");
+};
+
+// ─── Game actions ──────────────────────────────────────────────────────────
+function spawnUnit(type) {
+  if (!myRole || !roomId) return;
+  const btn = document.getElementById({ miner:"uMiner", sword:"uSword", archer:"uArcher", spear:"uSpear", giant:"uGiant" }[type]);
+  if (btn) { btn.classList.add("flash"); setTimeout(() => btn.classList.remove("flash"), 200); }
+  send({ type:"spawn", unitType: type });
+}
+
+function sendMode(mode) {
+  currentMode = mode;
+  updateModeButtons();
+  send({ type:"mode", value: mode });
+}
+
+function sendReset() { send({ type:"reset" }); }
+function goLobby()   { ws?.close(); showScreen("lobby"); }
+
+function updateModeButtons() {
+  const atk = document.getElementById("btnAttack");
+  const def = document.getElementById("btnDefend");
+  atk.className = "mode-btn" + (currentMode === "attack" ? " active-attack" : "");
+  def.className = "mode-btn" + (currentMode === "defend" ? " active-defend" : "");
+  document.getElementById("modeLabel").textContent = currentMode === "attack" ? "В АТАКЕ" : "ОБОРОНА";
+}
+
+// ─── HUD ───────────────────────────────────────────────────────────────────
+const COSTS = { miner:50, sword:120, archer:170, spear:150, giant:350 };
+const POPS  = { miner:1,  sword:2,   archer:2,   spear:2,   giant:4  };
+const BTN_IDS = { miner:"uMiner", sword:"uSword", archer:"uArcher", spear:"uSpear", giant:"uGiant" };
+
+function updateHUD() {
+  if (!gameState || !myRole) return;
+  const me = myRole, enemy = me === "A" ? "B" : "A";
+
+  const mGold = gameState.gold[me];
+  const ePop  = gameState.pop[me];
+  const eCap  = gameState.popCap[me];
+
+  document.getElementById("goldA").textContent  = Math.floor(mGold);
+  document.getElementById("popA").textContent   = ePop + "/" + eCap;
+  document.getElementById("goldB").textContent  = Math.floor(gameState.gold[enemy]);
+  document.getElementById("popB").textContent   = gameState.pop[enemy] + "/" + gameState.popCap[enemy];
+
+  const bA = gameState.bases[me];
+  const bB = gameState.bases[enemy];
+  document.getElementById("hpBarA").style.width = (bA.hp / bA.maxHp * 100) + "%";
+  document.getElementById("hpBarB").style.width = (bB.hp / bB.maxHp * 100) + "%";
+  document.getElementById("hpNumA").textContent = Math.ceil(bA.hp);
+  document.getElementById("hpNumB").textContent = Math.ceil(bB.hp);
+
+  // Pop bar
+  document.getElementById("popLabel").textContent = ePop + "/" + eCap;
+  document.getElementById("popFill").style.width = (ePop / eCap * 100) + "%";
+
+  // Unit button states
+  for (const [type, btnId] of Object.entries(BTN_IDS)) {
+    const btn = document.getElementById(btnId);
+    const cantAfford = mGold < COSTS[type];
+    const noPop = ePop + POPS[type] > eCap;
+    btn.classList.toggle("cant-afford", cantAfford || noPop);
   }
-  btnMiner.onclick  = () => spawn("miner");
-  btnSword.onclick  = () => spawn("sword");
-  btnArcher.onclick = () => spawn("archer");
 
-  btnAttack.onclick = () => ws.send(JSON.stringify({ type:"mode", value:"attack" }));
-  btnDefend.onclick = () => ws.send(JSON.stringify({ type:"mode", value:"defend" }));
+  // Timer
+  if (gameStartTime) {
+    const secs = Math.floor((Date.now() - gameStartTime) / 1000);
+    const m = Math.floor(secs / 60).toString().padStart(2,"0");
+    const s = (secs % 60).toString().padStart(2,"0");
+    document.getElementById("timerBadge").textContent = m + ":" + s;
+  }
+}
 
-  function draw(){
-    requestAnimationFrame(draw);
+function showWin(winner) {
+  const ov     = document.getElementById("win-overlay");
+  const isWin  = winner === myRole;
+  document.getElementById("winEmoji").textContent  = isWin ? "🏆" : "💀";
+  document.getElementById("winTitle").textContent  = isWin ? "ПОБЕДА!" : "ПОРАЖЕНИЕ";
+  document.getElementById("winSub").textContent    = isWin ? "Ты уничтожил базу врага!" : "Твоя база разрушена";
+  document.getElementById("winTitle").style.color  = isWin ? "var(--gold2)" : "var(--red)";
+  ov.classList.add("show");
+}
+
+// ─── Notif ─────────────────────────────────────────────────────────────────
+let notifTimer;
+function showNotif(text, ms = 2000) {
+  const el = document.getElementById("notif");
+  el.textContent = text;
+  el.classList.add("show");
+  clearTimeout(notifTimer);
+  notifTimer = setTimeout(() => el.classList.remove("show"), ms);
+}
+
+// ─── CANVAS RENDERER ───────────────────────────────────────────────────────
+const COLORS = {
+  A: { base:"#c0392b", unit:"#e05555", unitDark:"#8b1a1a", text:"#ffcccc" },
+  B: { base:"#2255cc", unit:"#4a8fff", unitDark:"#1a3399", text:"#cce0ff" },
+};
+
+const UNIT_ICON = { miner:"⛏", sword:"⚔", archer:"🏹", spear:"🔱", giant:"🗿" };
+const UNIT_R    = { miner:11, sword:14, archer:11, spear:12, giant:20 };
+
+let particles = [];
+
+function addParticle(x, y, color) {
+  for (let i = 0; i < 5; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 1 + Math.random() * 2.5;
+    particles.push({ x, y, vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed - 2,
+                     life: 1, color, r: 2 + Math.random()*3 });
+  }
+}
+
+let prevUnits = {};
+
+function render() {
+  requestAnimationFrame(render);
+  if (!gameState) {
     ctx.clearRect(0,0,cv.width,cv.height);
+    ctx.fillStyle = "#0d1128";
+    ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.fillStyle = "rgba(255,255,255,0.2)";
+    ctx.font = "bold 20px Rajdhani";
+    ctx.textAlign = "center";
+    ctx.fillText("Ожидание игры…", 500, 190);
+    return;
+  }
 
-    if (!state){
-      ctx.fillStyle="#e9ecff"; ctx.font="18px system-ui";
-      ctx.fillText("Жду state… Создай/войти в комнату", 20, 40);
-      return;
+  const st = gameState;
+  const W = cv.width, H = cv.height;
+  const GROUND = H - 60;
+
+  // ── Background ─────────────────────────────────────────────────────────
+  // Sky gradient
+  const sky = ctx.createLinearGradient(0, 0, 0, GROUND);
+  sky.addColorStop(0, "#050918");
+  sky.addColorStop(1, "#0d1535");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, GROUND);
+
+  // Mountains bg
+  ctx.fillStyle = "rgba(20,30,70,0.6)";
+  ctx.beginPath();
+  ctx.moveTo(0, GROUND);
+  for (let x = 0; x <= W; x += 60) {
+    const h = 40 + Math.sin(x * 0.015) * 30 + Math.sin(x * 0.04) * 15;
+    ctx.lineTo(x, GROUND - h);
+  }
+  ctx.lineTo(W, GROUND); ctx.closePath(); ctx.fill();
+
+  // Stars
+  ctx.fillStyle = "rgba(255,255,255,0.5)";
+  const stars = [[80,30],[200,15],[350,45],[500,20],[680,35],[820,12],[930,40],[150,50],[420,8]];
+  for (const [sx, sy] of stars) {
+    ctx.beginPath(); ctx.arc(sx, sy, 1, 0, Math.PI*2); ctx.fill();
+  }
+
+  // Ground
+  const grd = ctx.createLinearGradient(0, GROUND, 0, H);
+  grd.addColorStop(0, "#1a2e0a");
+  grd.addColorStop(0.5, "#0f1c06");
+  grd.addColorStop(1, "#080d03");
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, GROUND, W, H - GROUND);
+
+  // Ground line
+  ctx.strokeStyle = "rgba(100,160,50,0.6)";
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, GROUND); ctx.lineTo(W, GROUND); ctx.stroke();
+
+  // ── Bases ─────────────────────────────────────────────────────────────
+  function drawBase(side) {
+    const b    = st.bases[side];
+    const c    = COLORS[side];
+    const isMe = side === myRole;
+    const bx   = b.x;
+    const baseW = side === "A" ? 60 : -60;
+
+    // Castle body
+    const grad = ctx.createLinearGradient(bx - 30, 0, bx + 30, 0);
+    grad.addColorStop(0, c.unitDark); grad.addColorStop(1, c.base);
+    ctx.fillStyle = grad;
+    ctx.fillRect(bx - 28, GROUND - 100, 56, 100);
+
+    // Battlements
+    ctx.fillStyle = c.base;
+    for (let i = 0; i < 4; i++) {
+      ctx.fillRect(bx - 28 + i * 15, GROUND - 115, 10, 20);
     }
 
-    const w = state.lane.w, h = state.lane.h;
+    // Gate arch
+    ctx.fillStyle = "#050918";
+    ctx.beginPath();
+    const gx = bx; const gy = GROUND - 30;
+    ctx.arc(gx, gy, 14, Math.PI, 0); ctx.fillRect(gx - 14, gy, 28, 30); ctx.fill();
 
-    // фон + земля
-    ctx.fillStyle="#0e1530"; ctx.fillRect(0,0,w,h);
-    ctx.fillStyle="rgba(255,255,255,0.05)"; ctx.fillRect(0,h-70,w,70);
+    // Flags
+    ctx.fillStyle = c.unit;
+    ctx.fillRect(bx - 2, GROUND - 140, 4, 35);
+    ctx.beginPath();
+    ctx.moveTo(bx + 2, GROUND - 140);
+    ctx.lineTo(bx + 20, GROUND - 130);
+    ctx.lineTo(bx + 2, GROUND - 120);
+    ctx.closePath(); ctx.fill();
 
-    // базы
-    function drawBase(side){
-      const b = state.bases[side];
-      ctx.fillStyle = side==="A" ? "rgba(255,80,80,0.9)" : "rgba(80,160,255,0.9)";
-      ctx.fillRect(b.x-18, h-140, 36, 90);
+    // HP bar
+    const barW = 80, barX = bx - 40, barY = GROUND - 155;
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.fillRect(barX, barY, barW, 9);
+    const pct = b.hp / b.maxHp;
+    const barGrad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+    if (pct > 0.5) { barGrad.addColorStop(0, "#2ecc40"); barGrad.addColorStop(1, "#27ae60"); }
+    else if (pct > 0.25) { barGrad.addColorStop(0, "#f39c12"); barGrad.addColorStop(1, "#e67e22"); }
+    else { barGrad.addColorStop(0, "#e74c3c"); barGrad.addColorStop(1, "#c0392b"); }
+    ctx.fillStyle = barGrad;
+    ctx.fillRect(barX, barY, barW * pct, 9);
+    ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1;
+    ctx.strokeRect(barX, barY, barW, 9);
 
-      // hp bar
-      ctx.fillStyle="rgba(255,255,255,0.14)";
-      ctx.fillRect(b.x-40, h-155, 80, 10);
-      ctx.fillStyle="#c9a84c";
-      ctx.fillRect(b.x-40, h-155, 80*(b.hp/650), 10);
+    // Label
+    ctx.fillStyle = isMe ? "rgba(255,255,100,0.9)" : "rgba(200,220,255,0.9)";
+    ctx.font = "bold 11px Rajdhani"; ctx.textAlign = "center";
+    ctx.fillText((isMe ? "🏰 ВЫ" : "🏰 ВРАГ"), bx, GROUND - 160);
+  }
 
-      ctx.fillStyle="#e9ecff"; ctx.font="14px system-ui";
-      ctx.fillText(side, b.x-5, h-110);
+  drawBase("A"); drawBase("B");
+
+  // ── Units ─────────────────────────────────────────────────────────────
+  for (const u of st.units) {
+    const c   = COLORS[u.side];
+    const r   = UNIT_R[u.type] || 13;
+    const uy  = GROUND - r;
+    const isMe = u.side === myRole;
+
+    // shadow
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
+    ctx.beginPath(); ctx.ellipse(u.x, GROUND, r*0.9, 4, 0, 0, Math.PI*2); ctx.fill();
+
+    // body
+    const bodyGrad = ctx.createRadialGradient(u.x - r*0.3, uy - r*0.3, r*0.1, u.x, uy, r);
+    bodyGrad.addColorStop(0, c.unit); bodyGrad.addColorStop(1, c.unitDark);
+    ctx.fillStyle = bodyGrad;
+    ctx.beginPath(); ctx.arc(u.x, uy, r, 0, Math.PI*2); ctx.fill();
+
+    // glow for my units
+    if (isMe) {
+      ctx.strokeStyle = "rgba(255,255,150,0.3)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(u.x, uy, r + 2, 0, Math.PI*2); ctx.stroke();
     }
-    drawBase("A"); drawBase("B");
 
-    // снаряды
-    ctx.strokeStyle="#e8c97a"; ctx.lineWidth=3;
-    for (const p of state.projectiles){
+    // fight flash
+    if (u.state === "fight") {
+      ctx.strokeStyle = "rgba(255,220,50,0.7)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(u.x, uy, r + 4, 0, Math.PI*2); ctx.stroke();
+    }
+
+    // HP bar
+    const maxHp = { miner:45, sword:120, archer:65, spear:90, giant:380 }[u.type] || 100;
+    const pct   = u.hp / maxHp;
+    const bw = r * 2, bx2 = u.x - r, by2 = uy - r - 8;
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.fillRect(bx2, by2, bw, 4);
+    ctx.fillStyle = pct > 0.5 ? "#2ecc40" : pct > 0.25 ? "#f39c12" : "#e74c3c";
+    ctx.fillRect(bx2, by2, bw * pct, 4);
+
+    // type letter
+    ctx.fillStyle = "#fff";
+    ctx.font = `bold ${Math.floor(r*0.9)}px Rajdhani`;
+    ctx.textAlign = "center";
+    const letters = { miner:"M", sword:"S", archer:"A", spear:"K", giant:"G" };
+    ctx.fillText(letters[u.type] || "?", u.x, uy + r*0.35);
+  }
+
+  // ── Projectiles ────────────────────────────────────────────────────────
+  for (const p of st.projectiles) {
+    const side = p.owner;
+    ctx.fillStyle = COLORS[side].unit;
+    ctx.strokeStyle = COLORS[side].text;
+    ctx.lineWidth = 1;
+
+    if (p.pierce) {
+      // spear
+      ctx.save();
+      ctx.translate(p.x, GROUND - 25);
+      ctx.rotate(p.vx > 0 ? 0.2 : -0.2);
+      ctx.fillStyle = "#aaa";
+      ctx.fillRect(-12, -2, 24, 4);
+      ctx.fillStyle = COLORS[side].unit;
       ctx.beginPath();
-      ctx.moveTo(p.x-10, h-90);
-      ctx.lineTo(p.x+10, h-90);
-      ctx.stroke();
-    }
-
-    // юниты
-    for (const u of state.units){
-      const y = h-90; // одна линия
-      const col = u.side==="A" ? "rgba(255,80,80,0.9)" : "rgba(80,160,255,0.9)";
-      ctx.fillStyle = col;
+      ctx.moveTo(p.vx > 0 ? 12 : -12, -6);
+      ctx.lineTo(p.vx > 0 ? 20 : -20, 0);
+      ctx.lineTo(p.vx > 0 ? 12 : -12, 6);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+    } else {
+      // arrow
+      ctx.save();
+      ctx.translate(p.x, GROUND - 30);
+      const gArr = ctx.createLinearGradient(-8,0,8,0);
+      gArr.addColorStop(0, COLORS[side].unitDark);
+      gArr.addColorStop(1, COLORS[side].unit);
+      ctx.fillStyle = gArr;
+      ctx.fillRect(p.vx > 0 ? -10 : -2, -1.5, 12, 3);
+      ctx.fillStyle = COLORS[side].unit;
       ctx.beginPath();
-      ctx.arc(u.x, y, 14, 0, Math.PI*2);
-      ctx.fill();
-
-      // hp mini
-      ctx.fillStyle="rgba(255,255,255,0.12)";
-      ctx.fillRect(u.x-16, y-24, 32, 5);
-      ctx.fillStyle="#c9a84c";
-      const maxHp = (u.type==="miner"?45:(u.type==="sword"?95:65));
-      ctx.fillRect(u.x-16, y-24, 32*(u.hp/maxHp), 5);
-
-      ctx.fillStyle="#e9ecff"; ctx.font="11px system-ui";
-      ctx.fillText(u.type[0].toUpperCase(), u.x-4, y+4);
-    }
-
-    // победа
-    if (state.winner){
-      ctx.fillStyle="rgba(0,0,0,0.55)";
-      ctx.fillRect(0,0,w,h);
-      ctx.fillStyle="#e9ecff"; ctx.font="bold 40px system-ui";
-      ctx.fillText("Победил: " + state.winner, 360, 190);
-      ctx.font="16px system-ui";
+      ctx.moveTo(p.vx > 0 ? 2 : -2, -4);
+      ctx.lineTo(p.vx > 0 ? 10 : -10, 0);
+      ctx.lineTo(p.vx > 0 ? 2 : -2, 4);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
     }
   }
-  draw();
+
+  // ── Particles ──────────────────────────────────────────────────────────
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const pt = particles[i];
+    pt.x += pt.vx; pt.y += pt.vy; pt.vy += 0.15; pt.life -= 0.04;
+    if (pt.life <= 0) { particles.splice(i,1); continue; }
+    ctx.globalAlpha = pt.life;
+    ctx.fillStyle = pt.color;
+    ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // ── Winner overlay ─────────────────────────────────────────────────────
+  // (handled by DOM overlay)
+}
+
+render();
+
+// ─── Keyboard (desktop debug) ──────────────────────────────────────────────
+document.addEventListener("keydown", (e) => {
+  const map = { "1":"miner","2":"sword","3":"archer","4":"spear","5":"giant" };
+  if (map[e.key]) spawnUnit(map[e.key]);
+  if (e.key === "a") sendMode("attack");
+  if (e.key === "d") sendMode("defend");
+});
 </script>
 </body>
 </html>
