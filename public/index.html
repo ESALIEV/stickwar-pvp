@@ -27,13 +27,13 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0a1f3d;font-family:
   box-shadow:0 0 60px 20px rgba(180,200,255,.25),0 0 120px 40px rgba(100,140,255,.1);
   animation:mf 6s ease-in-out infinite}
 @keyframes mf{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(-12px)}}
-.menu-logo-wrap{position:relative;z-index:2;margin-top:min(200px,45vw);display:flex;flex-direction:column;align-items:center;gap:6px}
+.menu-logo-wrap{display:flex;flex-direction:column;align-items:center;gap:6px}
 .menu-logo{font-family:'Cinzel Decorative',cursive;font-size:clamp(26px,7.5vw,52px);font-weight:900;line-height:1;
   background:linear-gradient(180deg,#f5c842 0%,#d4a017 40%,#8B5E2A 100%);
   -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
   filter:drop-shadow(0 3px 8px rgba(0,0,0,.9));letter-spacing:2px}
 .menu-logo2{font-size:clamp(9px,2.2vw,14px);letter-spacing:6px;color:rgba(212,160,23,.8);text-transform:uppercase}
-.menu-btns{position:relative;z-index:2;display:flex;flex-direction:column;gap:12px;width:min(270px,78vw);margin-top:22px}
+.menu-btns{display:flex;flex-direction:column;gap:12px;width:min(270px,78vw)}
 #joinPanel{width:min(270px,78vw);flex-direction:column;gap:10px;margin-top:8px}
 .wbtn{cursor:pointer;border:none;width:100%;padding:15px;border-radius:8px;font-family:'Cinzel',serif;font-weight:700;
   font-size:clamp(12px,3.3vw,16px);letter-spacing:.5px;color:#fff6d0;
@@ -133,19 +133,24 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0a1f3d;font-family:
 <!-- MENU -->
 <div id="sMenu" class="screen">
   <div class="menu-moon"></div>
-  <canvas id="menuCv" style="position:absolute;bottom:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1"></canvas>
-  <div class="menu-logo-wrap">
-    <div class="menu-logo">STICK WAR</div>
-    <div class="menu-logo2">Online Legacy</div>
-  </div>
-  <div class="menu-btns">
-    <button class="wbtn gold" id="btnCreate">⚔️ Создать игру</button>
-    <button class="wbtn" id="btnGoJoin">🏰 Войти по коду</button>
-  </div>
-  <div id="joinPanel" style="display:none;width:min(270px,78vw);flex-direction:column;gap:10px;margin-top:8px">
-    <input class="inp-code" id="inpRoom" placeholder="ABCD12" maxlength="6"/>
-    <button class="wbtn gold" id="btnJoin">Войти →</button>
-    <button class="wbtn" id="btnJoinCancel" style="padding:10px;font-size:12px">Отмена</button>
+  <!-- grass canvas sits BEHIND everything (z-index:0) -->
+  <canvas id="menuCv" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0"></canvas>
+
+  <!-- all interactive content above grass (z-index:10) -->
+  <div style="position:relative;z-index:10;display:flex;flex-direction:column;align-items:center;gap:0;width:100%">
+    <div class="menu-logo-wrap" style="margin-top:min(190px,42vw)">
+      <div class="menu-logo">STICK WAR</div>
+      <div class="menu-logo2">Online Legacy</div>
+    </div>
+    <div class="menu-btns" style="margin-top:22px">
+      <button class="wbtn gold" id="btnCreate">⚔️ Создать игру</button>
+      <button class="wbtn" id="btnGoJoin">🏰 Войти по коду</button>
+    </div>
+    <div id="joinPanel" style="display:none;width:min(270px,78vw);flex-direction:column;gap:10px;margin-top:10px">
+      <input class="inp-code" id="inpRoom" placeholder="ABCD12" maxlength="6"/>
+      <button class="wbtn gold" id="btnJoin">Войти →</button>
+      <button class="wbtn" id="btnJoinCancel" style="padding:10px;font-size:12px">Отмена</button>
+    </div>
   </div>
 </div>
 
