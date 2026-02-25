@@ -21,7 +21,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#060e1f;font-family:
   overflow:hidden;
 }
 
-/* Stars via pseudo */
 #sMenu::before{
   content:'';position:absolute;inset:0;pointer-events:none;z-index:0;
   background-image:
@@ -38,7 +37,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#060e1f;font-family:
     radial-gradient(1px 1px at 72% 35%, rgba(255,255,255,.5), transparent);
 }
 
-/* Moon */
 #menuMoon{
   position:absolute;top:4%;left:50%;transform:translateX(-50%);
   width:min(155px,36vw);height:min(155px,36vw);border-radius:50%;
@@ -49,13 +47,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:#060e1f;font-family:
 }
 @keyframes moonFloat{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(-10px)}}
 
-/* Grass canvas — purely decorative bottom strip */
 #menuGrassCv{
   position:absolute;bottom:0;left:0;width:100%;
   height:40%;pointer-events:none;z-index:2;
 }
 
-/* Center column for logo+buttons — sits above everything */
 #menuUI{
   position:absolute;
   top:0;left:0;right:0;bottom:0;
@@ -63,10 +59,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#060e1f;font-family:
   display:flex;
   flex-direction:column;
   align-items:center;
-  /* push content to upper-center, away from grass */
   justify-content:flex-start;
   padding-top:min(175px,40vw);
-  /* allow scroll on very small phones */
   overflow-y:auto;
   -webkit-overflow-scrolling:touch;
 }
@@ -110,7 +104,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#060e1f;font-family:
 }
 #menuUI .wbtn.gold:active{box-shadow:0 1px 0 #5a3a02,0 2px 6px rgba(200,150,0,.3)}
 
-/* Join panel */
 #joinPanel{
   display:none;
   flex-direction:column;gap:10px;
@@ -212,13 +205,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:#060e1f;font-family:
 
 <!-- ═══════════ MENU ═══════════════════════════════════════════ -->
 <div id="sMenu" class="screen">
-  <!-- Stars via ::before pseudo -->
-  <!-- Moon -->
   <div id="menuMoon"></div>
-  <!-- Grass (bottom 40%, purely decorative) -->
   <canvas id="menuGrassCv"></canvas>
 
-  <!-- UI column — logo + buttons, z-index:10, above grass -->
   <div id="menuUI">
     <div class="logo">STICK WAR</div>
     <div class="logo-sub">Online Legacy</div>
@@ -307,11 +296,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:#060e1f;font-family:
 <script>
 // ════════════ UNIT DEFINITIONS ════════════════════════════════════
 const UNIT_DEFS = [
-  {type:"miner", name:"Шахтёр",cost:50, pop:1},
-  {type:"sword", name:"Мечник", cost:120,pop:2},
-  {type:"archer",name:"Лучник", cost:170,pop:2},
-  {type:"spear", name:"Копьё",  cost:150,pop:2},
-  {type:"giant", name:"Гигант", cost:350,pop:4},
+  {type:"miner", name:"Шахтёр", cost:50, pop:1},
+  {type:"sword", name:"Мечник", cost:120, pop:2},
+  {type:"archer", name:"Лучник", cost:170, pop:2},
+  {type:"spear", name:"Копьё", cost:150, pop:2},
+  {type:"giant", name:"Гигант", cost:350, pop:4},
 ];
 
 // ════════════ BUILD UNIT BUTTONS ══════════════════════════════════
@@ -542,7 +531,7 @@ function drawBase(c,base,side,G,isMe){
 }
 
 const USIZES={miner:18,sword:22,archer:18,spear:20,giant:32};
-const UMAXHP={miner:45,sword:120,archer:65,spear:90,giant:380};
+const UMAXHP={miner:55,sword:110,archer:75,spear:90,giant:380};
 
 function drawUnit(c,u,G,frame,myRole){
   const x=u.x, sz=USIZES[u.type]||20, isMe=u.side===myRole;
@@ -733,6 +722,7 @@ const WS_URL=location.protocol==="https:"?`wss://${location.host}`:`ws://${locat
 let ws, roomId, myRole, gameState, currentMode="defend", gameStartTime=0, winShown=false;
 
 function connect(cb){
+  if (ws && ws.readyState === WebSocket.OPEN) ws.close(); // закрываем предыдущее соединение
   ws=new WebSocket(WS_URL);
   ws.onopen=cb;
   ws.onmessage=ev=>handleMsg(JSON.parse(ev.data));
@@ -742,21 +732,9 @@ function send(obj){ if(ws?.readyState===1) ws.send(JSON.stringify(obj)); }
 
 function handleMsg(msg){
   if(msg.type==="joined"){
-  roomId=msg.roomId; myRole=msg.role;
-
-  // если сервер говорит что комната уже готова (оба игрока), стартуем сразу
-  if(msg.ready){ startGame(); return; }
-
-  if(myRole==="A"){
-    document.getElementById("codeDisplay").textContent=roomId;
-    showScreen("sWait");
-  } else {
-    startGame();
-  }
-}
-
-if(msg.type==="ready") startGame();
-if(msg.type==="opponent_joined") startGame();
+    roomId=msg.roomId; myRole=msg.role;
+    if(myRole==="A"){ document.getElementById("codeDisplay").textContent=roomId; showScreen("sWait"); }
+    else startGame();
   }
   if(msg.type==="opponent_joined") startGame();
   if(msg.type==="state"){
@@ -822,7 +800,6 @@ function updateHUD(){
   document.getElementById("hpEn").style.width=(be.hp/be.maxHp*100)+"%";
   document.getElementById("hpMeN").textContent=Math.ceil(bm.hp);
   document.getElementById("hpEnN").textContent=Math.ceil(be.hp);
-  // popLbl mirrors popMe (single source of truth)
   document.getElementById("popLbl").textContent=mp+"/"+mc;
   document.getElementById("popFill").style.width=(mp/mc*100)+"%";
   UNIT_DEFS.forEach(ud=>{
