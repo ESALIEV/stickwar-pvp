@@ -110,8 +110,12 @@ function stepGame(st, dtMs) {
 
   const dt = dtMs / 1000;
   const alive = (u) => u.hp > 0;
+  // Snapshot alive units at start of tick — prevents dead units from being targeted
+  // and prevents double-reward when a unit dies mid-tick
   const unitsA = st.units.filter(u => u.side === "A" && alive(u));
   const unitsB = st.units.filter(u => u.side === "B" && alive(u));
+  // Track units killed this tick to prevent double gold rewards
+  const killedThisTick = new Set();
 
   // ── Base gold income ──────────────────────────────────────────────────────
   for (const side of ["A", "B"]) {
@@ -157,7 +161,7 @@ function stepGame(st, dtMs) {
           unit.state = "mine";
         }
       }
-      unit.x = clamp(unit.x, myBase.x - 10, enemyBase.x + 10);
+      unit.x = clamp(unit.x, myBase.x + 10, enemyBase.x - 10);
       continue;
     }
 
@@ -203,8 +207,9 @@ function stepGame(st, dtMs) {
           } else {
             // melee
             closestEnemy.hp -= unit.dmg;
-            if (closestEnemy.hp <= 0) {
+            if (closestEnemy.hp <= 0 && !killedThisTick.has(closestEnemy.id)) {
               closestEnemy.hp = 0;
+              killedThisTick.add(closestEnemy.id);
               st.gold[unit.side] += UNIT_DEF[closestEnemy.type]?.reward || 15;
             }
           }
@@ -257,9 +262,12 @@ function stepGame(st, dtMs) {
       if (Math.abs(u.x - p.x) < 22) {
         u.hp -= p.dmg;
         p.hit.push(u.id);
-        if (u.hp <= 0) {
+        if (u.hp <= 0 && !killedThisTick.has(u.id)) {
           u.hp = 0;
+          killedThisTick.add(u.id);
           st.gold[p.owner] += UNIT_DEF[u.type]?.reward || 15;
+        } else if (u.hp <= 0) {
+          u.hp = 0; // already rewarded, just clamp hp
         }
         if (!p.pierce) { hit = true; break; }
       }
@@ -281,6 +289,8 @@ function stepGame(st, dtMs) {
   // ── Clean dead units ──────────────────────────────────────────────────────
   for (const u of st.units) {
     if (u.hp <= 0 && u.hp !== -999) {
+      // Only subtract pop once per death (killedThisTick prevents duplicate rewards above,
+      // but pop deduction happens here — mark with -999 to skip on next pass)
       st.pop[u.side] -= UNIT_DEF[u.type]?.pop || 1;
       if (st.pop[u.side] < 0) st.pop[u.side] = 0;
       u.hp = -999; // mark for removal
@@ -387,6 +397,18 @@ wss.on("connection", (ws) => {
       if (room) {
         if (meta.role === "A") room.clients.A = null;
         if (meta.role === "B") room.clients.B = null;
+
+        // Notify the remaining player that opponent disconnected
+        const otherSide = meta.role === "A" ? "B" : "A";
+        const otherWs = room.clients[otherSide];
+        if (otherWs && otherWs.readyState === WebSocket.OPEN) {
+          otherWs.send(JSON.stringify({ type: "opponent_left" }));
+        }
+
+        // If both players gone, delete room immediately
+        if (!room.clients.A && !room.clients.B) {
+          rooms.delete(meta.roomId);
+        }
       }
     }
     clients.delete(ws);
