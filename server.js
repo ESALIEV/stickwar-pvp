@@ -80,6 +80,13 @@ function makeState() {
       A: { x: 60,  hp: BASE_HP, maxHp: BASE_HP },
       B: { x: 940, hp: BASE_HP, maxHp: BASE_HP },
     },
+	
+	    mines: [
+      { id: "m1", x: 230 },
+      { id: "m2", x: 350 },
+      { id: "m3", x: 650 },
+      { id: "m4", x: 770 }
+    ],
 
     // ДВЕ кучи золота (как на фоне): левая для A, правая для B
     mines: [
@@ -122,7 +129,9 @@ function spawnUnit(st, side, type) {
 
     // miner-only
     carry: 0,       // сколько золота несёт
-    mineTimer: 0,   // сколько копает (ms)
+    mineTimer: 0,   // таймер копки
+    mineId: null,   // цель-руда
+    ai: "toMine",   // toMine | mining | toBase
   };
 
   st.units.push(unit);
@@ -173,49 +182,77 @@ function stepGame(st, dtMs) {
 
     // ── MINER: real mine loop ───────────────────────────────────────
     if (unit.type === "miner") {
-      const mine = (unit.side === "A") ? st.mines[0] : st.mines[1];
-      const closestEnemy = nearestEnemy(unit, enemies);
+  const mid = LANE_W / 2;
 
-      // danger → run home
-      if (closestEnemy && dist1d(unit.x, closestEnemy.x) < 140) {
-        const backDir = (unit.side === "A") ? -1 : 1;
-        unit.x += backDir * unit.speed * dt;
-        unit.state = "toBase";
-      } else {
-        if (unit.carry > 0) {
-          // return to base to deposit
-          const toBase = myBase.x - unit.x;
-          if (Math.abs(toBase) <= 22) {
-            st.gold[unit.side] += unit.carry;
-            unit.carry = 0;
-            unit.mineTimer = 0;
-            unit.state = "toMine";
-          } else {
-            unit.x += Math.sign(toBase) * unit.speed * dt;
-            unit.state = "toBase";
-          }
-        } else {
-          // go mine
-          const toMine = mine.x - unit.x;
-          if (Math.abs(toMine) <= 18) {
-            unit.mineTimer += dtMs;
-            unit.state = "mining";
-            if (unit.mineTimer >= 1200) { // 1.2 sec per добыча
-              unit.mineTimer = 0;
-              unit.carry = 20;
-              unit.state = "toBase";
-            }
-          } else {
-            unit.x += Math.sign(toMine) * unit.speed * dt;
-            unit.state = "toMine";
-          }
-        }
-      }
+  // Шахтёр работает только на СВОЕЙ половине карты
+  const myMines = st.mines.filter(m =>
+    unit.side === "A" ? m.x < mid : m.x > mid
+  );
 
-      // safe clamp (fix for both sides)
-      unit.x = clamp(unit.x, 30, LANE_W - 30);
-      continue;
+  // Выбираем ближайшую руду к шахтёру (на своей половине)
+  function pickMine() {
+    let best = null, bestD = Infinity;
+    for (const m of myMines) {
+      const d = Math.abs(m.x - unit.x);
+      if (d < bestD) { bestD = d; best = m; }
     }
+    return best;
+  }
+
+  const closestEnemy = nearestEnemy(unit, enemies);
+
+  // Если враг близко — убегай к базе
+  if (closestEnemy && dist1d(unit.x, closestEnemy.x) < 140) {
+    unit.ai = "toBase";
+  }
+
+  // если нет цели-руды, назначаем
+  if (!unit.mineId) {
+    const m = pickMine();
+    unit.mineId = m ? m.id : null;
+  }
+
+  const mine = st.mines.find(m => m.id === unit.mineId) || pickMine();
+  if (!mine) {
+    // если руды почему-то нет — просто домой
+    unit.ai = "toBase";
+  }
+
+  if (unit.ai === "toMine") {
+    const to = mine.x - unit.x;
+    if (Math.abs(to) <= 18) {
+      unit.ai = "mining";
+      unit.mineTimer = 0;
+    } else {
+      unit.x += Math.sign(to) * unit.speed * dt;
+    }
+  }
+  else if (unit.ai === "mining") {
+    unit.mineTimer += dtMs;
+    if (unit.mineTimer >= 1200) {     // 1.2 сек копки
+      unit.mineTimer = 0;
+      unit.carry = 20;                // принёс 20 золота
+      unit.ai = "toBase";
+    }
+  }
+  else { // toBase
+    const to = myBase.x - unit.x;
+    if (Math.abs(to) <= 22) {
+      st.gold[unit.side] += unit.carry;
+      unit.carry = 0;
+      unit.ai = "toMine";
+      // пере-выбираем ближайшую руду (может поменяться)
+      const m = pickMine();
+      unit.mineId = m ? m.id : unit.mineId;
+    } else {
+      unit.x += Math.sign(to) * unit.speed * dt;
+    }
+  }
+
+  // ✅ ФИКС БАГА ДЛЯ B: никаких перепутанных clamp-границ
+  unit.x = clamp(unit.x, 30, LANE_W - 30);
+  continue;
+}
 
     // ── Fighters (sword/archer) ─────────────────────────────────────
     // choose nearest enemy in front
