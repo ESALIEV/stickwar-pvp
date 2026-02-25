@@ -13,6 +13,28 @@ html,body{width:100%;height:100%;overflow:hidden;background:#060e1f;font-family:
 .screen{position:absolute;inset:0;transition:opacity .35s ease}
 .screen.off{opacity:0;pointer-events:none}
 
+/* Индикатор соединения */
+#connectionStatus{
+  position:fixed; bottom:10px; right:10px; 
+  width:12px; height:12px; border-radius:50%; 
+  background:#0f0; box-shadow:0 0 10px #0f0; 
+  z-index:1000; transition:all 0.3s;
+}
+#connectionStatus.connecting{background:#ff0; box-shadow:0 0 10px #ff0;}
+#connectionStatus.disconnected{background:#f00; box-shadow:0 0 10px #f00;}
+
+/* Уведомления */
+#notif{
+  position:fixed; top:56px; left:50%; transform:translateX(-50%) translateY(-8px);
+  background:rgba(120,20,20,.95); color:#fff; font-family:'Cinzel',serif; font-size:11px; font-weight:700;
+  padding:7px 16px; border-radius:20px; letter-spacing:1px; opacity:0; pointer-events:none; z-index:200;
+  white-space:nowrap; transition:all .25s; border:1px solid rgba(255,80,80,.4);
+  max-width:80vw; white-space:normal; word-break:break-word;
+}
+#notif.on{opacity:1; transform:translateX(-50%) translateY(0)}
+#notif.warning{background:rgba(200,150,20,.95); border-color:rgba(255,200,50,.4);}
+#notif.success{background:rgba(20,120,20,.95); border-color:rgba(80,255,80,.4);}
+
 /* ═══════════════════════════════════════════
    MENU
 ═══════════════════════════════════════════ */
@@ -193,15 +215,32 @@ html,body{width:100%;height:100%;overflow:hidden;background:#060e1f;font-family:
 .win-title.defeat{color:#e74c3c;text-shadow:0 0 30px rgba(231,76,60,.7)}
 .win-sub{font-size:12px;color:rgba(255,255,255,.6);letter-spacing:2px}
 
-/* ── NOTIF ────────────────────────────────────────────────────── */
-#notif{position:fixed;top:56px;left:50%;transform:translateX(-50%) translateY(-8px);
-  background:rgba(120,20,20,.95);color:#fff;font-family:'Cinzel',serif;font-size:11px;font-weight:700;
-  padding:7px 16px;border-radius:20px;letter-spacing:1px;opacity:0;pointer-events:none;z-index:200;
-  white-space:nowrap;transition:all .25s;border:1px solid rgba(255,80,80,.4)}
-#notif.on{opacity:1;transform:translateX(-50%) translateY(0)}
+/* ── RECONNECT PANEL ──────────────────────────────────────────── */
+#reconnectPanel{
+  position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+  background:rgba(5,15,35,.95); border:3px solid var(--gold); border-radius:16px;
+  padding:28px; display:none; flex-direction:column; align-items:center; gap:15px;
+  z-index:300; min-width:280px; backdrop-filter:blur(4px);
+}
+#reconnectPanel.show{display:flex}
+.reconnect-title{font-size:18px; color:var(--gold2); font-weight:700}
+.reconnect-progress{width:100%; height:4px; background:rgba(255,255,255,.1); border-radius:2px; overflow:hidden}
+.reconnect-bar{height:100%; background:var(--gold2); width:0%; transition:width .3s}
+.reconnect-attempt{font-size:12px; color:rgba(255,255,255,.6)}
 </style>
 </head>
 <body>
+
+<!-- Индикатор соединения -->
+<div id="connectionStatus"></div>
+
+<!-- Панель переподключения -->
+<div id="reconnectPanel">
+  <div class="reconnect-title">🔄 Восстановление соединения</div>
+  <div class="reconnect-progress"><div class="reconnect-bar" id="reconnectBar"></div></div>
+  <div class="reconnect-attempt" id="reconnectAttempt">Попытка 1/5</div>
+  <button class="wbtn" id="cancelReconnect" style="width:200px; padding:10px;">Отмена</button>
+</div>
 
 <!-- ═══════════ MENU ═══════════════════════════════════════════ -->
 <div id="sMenu" class="screen">
@@ -269,8 +308,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#060e1f;font-family:
 
   <div id="panel">
     <div class="mode-row">
-      <button class="mbtn def-on" id="mDef" onclick="sendMode('defend')">🛡 ДЕРЖАТЬ ОБОРОНУ</button>
-      <button class="mbtn" id="mAtk" onclick="sendMode('attack')">⚔️ В АТАКУ</button>
+      <button class="mbtn def-on" id="mDef">🛡 ДЕРЖАТЬ ОБОРОНУ</button>
+      <button class="mbtn" id="mAtk">⚔️ В АТАКУ</button>
     </div>
     <div class="poprow">
       <span class="pop-lbl" id="popLbl">0/10</span>
@@ -285,8 +324,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#060e1f;font-family:
       <div class="win-icon" id="wIco">🏆</div>
       <div class="win-title victory" id="wTitle">ПОБЕДА!</div>
       <div class="win-sub" id="wSub">Ты уничтожил вражескую базу</div>
-      <button class="wbtn gold" style="width:210px;padding:13px;margin-top:6px" onclick="sendReset()">🔄 Играть снова</button>
-      <button class="wbtn" style="width:210px;padding:11px;font-size:12px" onclick="goMenu()">🏠 В меню</button>
+      <button class="wbtn gold" style="width:210px;padding:13px;margin-top:6px" id="playAgainBtn">🔄 Играть снова</button>
+      <button class="wbtn" style="width:210px;padding:11px;font-size:12px" id="menuBtn">🏠 В меню</button>
     </div>
   </div>
 </div>
@@ -717,120 +756,448 @@ function drawMenuStick(c,x,y,col,right){
   c.beginPath(); c.moveTo(x,y-h*.5); c.lineTo(x+dir*14,y-h*.55); c.stroke();
 }
 
-// ════════════ NETWORK ════════════════════════════════════════════
-const WS_URL=location.protocol==="https:"?`wss://${location.host}`:`ws://${location.host}`;
-let ws, roomId, myRole, gameState, currentMode="defend", gameStartTime=0, winShown=false;
+// ════════════ УЛУЧШЕННАЯ СЕТЕВАЯ ЧАСТЬ ═══════════════════════════
+const WS_URL = location.protocol === "https:" 
+  ? `wss://${location.host}` 
+  : `ws://${location.host}`;
 
-function connect(cb){
-  if (ws && ws.readyState === WebSocket.OPEN) ws.close(); // закрываем предыдущее соединение
-  ws=new WebSocket(WS_URL);
-  ws.onopen=cb;
-  ws.onmessage=ev=>handleMsg(JSON.parse(ev.data));
-  ws.onclose=()=>showNotif("Соединение потеряно",4000);
+let ws = null;
+let roomId = null;
+let myRole = null;
+let gameState = null;
+let currentMode = "defend";
+let gameStartTime = 0;
+let winShown = false;
+
+// Состояние соединения
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+let reconnectTimer = null;
+let pingInterval = null;
+let connectionCheckInterval = null;
+let isReconnecting = false;
+
+function updateConnectionStatus() {
+  const status = document.getElementById("connectionStatus");
+  if (!status) return;
+  
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    status.className = "";
+    status.title = "Соединение установлено";
+  } else if (ws && ws.readyState === WebSocket.CONNECTING) {
+    status.className = "connecting";
+    status.title = "Подключение...";
+  } else {
+    status.className = "disconnected";
+    status.title = "Нет соединения";
+  }
 }
-function send(obj){ if(ws?.readyState===1) ws.send(JSON.stringify(obj)); }
 
-function handleMsg(msg){
-  if(msg.type==="joined"){
-    roomId=msg.roomId; myRole=msg.role;
-    if(myRole==="A"){ document.getElementById("codeDisplay").textContent=roomId; showScreen("sWait"); }
-    else startGame();
+function showReconnectPanel(show, attempt = 1) {
+  const panel = document.getElementById("reconnectPanel");
+  const bar = document.getElementById("reconnectBar");
+  const attemptText = document.getElementById("reconnectAttempt");
+  
+  if (show) {
+    panel.classList.add("show");
+    const progress = (attempt / MAX_RECONNECT_ATTEMPTS) * 100;
+    bar.style.width = progress + "%";
+    attemptText.textContent = `Попытка ${attempt}/${MAX_RECONNECT_ATTEMPTS}`;
+  } else {
+    panel.classList.remove("show");
   }
-  if(msg.type==="opponent_joined") startGame();
-  if(msg.type==="state"){
-    gameState=msg.state; updateHUD();
-    if(gameState.winner && !winShown){ winShown=true; showWin(gameState.winner); }
+}
+
+function connect(cb) {
+  // Очищаем предыдущее соединение
+  if (ws) {
+    try {
+      ws.close(1000, "Manual reconnect");
+    } catch (e) {}
+    ws = null;
   }
-  if(msg.type==="reset_ok"){
+
+  // Очищаем интервалы
+  if (pingInterval) clearInterval(pingInterval);
+  if (connectionCheckInterval) clearInterval(connectionCheckInterval);
+
+  ws = new WebSocket(WS_URL);
+  updateConnectionStatus();
+  
+  // Таймаут соединения
+  const connectionTimeout = setTimeout(() => {
+    if (ws && ws.readyState !== WebSocket.OPEN) {
+      console.log("Таймаут соединения");
+      ws.close(4000, "Connection timeout");
+      if (!isReconnecting) {
+        showNotif("Таймаут соединения", 3000, "warning");
+      }
+    }
+  }, 10000);
+
+  ws.onopen = () => {
+    console.log("WebSocket соединение установлено");
+    clearTimeout(connectionTimeout);
+    reconnectAttempts = 0;
+    isReconnecting = false;
+    showReconnectPanel(false);
+    updateConnectionStatus();
+    
+    // Запускаем пинг для поддержания соединения
+    startPingInterval();
+    
+    if (cb) cb();
+  };
+
+  ws.onmessage = (ev) => {
+    try {
+      const msg = JSON.parse(ev.data);
+      handleMessage(msg);
+    } catch (err) {
+      console.error("Ошибка парсинга сообщения:", err);
+    }
+  };
+
+  ws.onclose = (event) => {
+    console.log("WebSocket закрыт:", event.code, event.reason);
+    clearInterval(pingInterval);
+    updateConnectionStatus();
+    
+    // Не показываем ошибку при нормальном закрытии
+    if (event.code !== 1000 && event.code !== 1001 && !isReconnecting) {
+      handleDisconnect();
+    }
+  };
+
+  ws.onerror = (err) => {
+    console.error("WebSocket ошибка:", err);
+  };
+}
+
+function startPingInterval() {
+  if (pingInterval) clearInterval(pingInterval);
+  
+  pingInterval = setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify({ type: "ping" }));
+      } catch (err) {
+        console.error("Ошибка отправки ping:", err);
+      }
+    }
+  }, 15000); // Каждые 15 секунд
+}
+
+function handleDisconnect() {
+  if (isReconnecting) return;
+  
+  isReconnecting = true;
+  
+  if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+    reconnectAttempts++;
+    
+    const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), 8000);
+    
+    showReconnectPanel(true, reconnectAttempts);
+    showNotif(`Соединение потеряно. Переподключение через ${Math.round(delay/1000)}с...`, 3000, "warning");
+    
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    
+    reconnectTimer = setTimeout(() => {
+      console.log(`Попытка переподключения ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`);
+      
+      if (roomId && myRole) {
+        // Если были в игре, пытаемся восстановить сессию
+        connect(() => {
+          if (myRole === "A") {
+            send({ type: "create" });
+          } else {
+            send({ type: "join", roomId });
+          }
+          
+          // Запрашиваем синхронизацию состояния
+          setTimeout(() => {
+            send({ type: "sync_request" });
+          }, 1000);
+        });
+      } else {
+        // Просто переподключаемся в меню
+        connect();
+      }
+    }, delay);
+  } else {
+    showReconnectPanel(false);
+    showNotif("Не удалось восстановить соединение", 4000, "error");
+    isReconnecting = false;
+    goMenu();
+  }
+}
+
+function send(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    try {
+      ws.send(JSON.stringify(obj));
+      return true;
+    } catch (err) {
+      console.error("Ошибка отправки:", err);
+      return false;
+    }
+  }
+  return false;
+}
+
+function handleMessage(msg) {
+  // Системные сообщения
+  if (msg.type === "pong") {
+    // Ответ на пинг, ничего не делаем
+    return;
+  }
+  
+  if (msg.type === "sync") {
+    console.log("Получена синхронизация состояния");
+    gameState = msg.state;
+    updateHUD();
+    return;
+  }
+
+  if (msg.type === "joined") {
+    roomId = msg.roomId;
+    myRole = msg.role;
+    
+    if (myRole === "A") {
+      document.getElementById("codeDisplay").textContent = roomId;
+      showScreen("sWait");
+    } else {
+      startGame();
+    }
+    
+    reconnectAttempts = 0;
+    isReconnecting = false;
+    showReconnectPanel(false);
+  }
+
+  if (msg.type === "opponent_joined") {
+    startGame();
+  }
+
+  if (msg.type === "state") {
+    gameState = msg.state;
+    updateHUD();
+    
+    if (gameState.winner && !winShown) {
+      winShown = true;
+      showWin(gameState.winner);
+    }
+  }
+
+  if (msg.type === "reset_ok") {
     document.getElementById("sWin").classList.remove("on");
-    winShown=false; currentMode="defend"; updateModeUI(); gameStartTime=Date.now();
+    winShown = false;
+    currentMode = "defend";
+    updateModeUI();
+    gameStartTime = Date.now();
   }
-  if(msg.type==="opponent_left"){
-    showNotif("Противник покинул игру",4000);
+
+  if (msg.type === "opponent_left") {
+    showNotif("Противник покинул игру", 4000, "warning");
+    
+    // Если игра идёт, показываем предупреждение
+    if (!document.getElementById("sGame").classList.contains("off")) {
+      showNotif("Ожидание противника...", 0, "warning"); // 0 = не скрывать автоматически
+    }
   }
-  if(msg.type==="error") showNotif(msg.msg,2000);
+
+  if (msg.type === "error") {
+    showNotif(msg.msg, 3000, "error");
+  }
 }
 
-function startGame(){ gameStartTime=Date.now(); showScreen("sGame"); resizeGame(); }
-function showScreen(id){ ["sMenu","sWait","sGame"].forEach(s=>document.getElementById(s).classList.toggle("off",s!==id)); }
+function startGame(){ 
+  gameStartTime = Date.now(); 
+  showScreen("sGame"); 
+  resizeGame(); 
+  showNotif("Игра началась!", 2000, "success");
+}
+
+function showScreen(id){ 
+  ["sMenu","sWait","sGame"].forEach(s => {
+    document.getElementById(s).classList.toggle("off", s !== id);
+  });
+}
 
 // Menu events
-document.getElementById("btnCreate").onclick=()=>connect(()=>send({type:"create"}));
-document.getElementById("btnGoJoin").onclick=()=>{
+document.getElementById("btnCreate").onclick = () => {
+  connect(() => send({type:"create"}));
+};
+
+document.getElementById("btnGoJoin").onclick = () => {
   document.getElementById("joinPanel").classList.toggle("open");
   if(document.getElementById("joinPanel").classList.contains("open")){
-    setTimeout(()=>document.getElementById("inpRoom").focus(),50);
+    setTimeout(() => document.getElementById("inpRoom").focus(),50);
   }
 };
-document.getElementById("btnJoin").onclick=()=>{
-  const code=document.getElementById("inpRoom").value.trim().toUpperCase();
-  if(!code){showNotif("Введи код",1500);return;}
-  connect(()=>send({type:"join",roomId:code}));
+
+document.getElementById("btnJoin").onclick = () => {
+  const code = document.getElementById("inpRoom").value.trim().toUpperCase();
+  if(!code){
+    showNotif("Введи код", 1500, "warning");
+    return;
+  }
+  connect(() => send({type:"join", roomId:code}));
 };
-document.getElementById("btnJoinCancel").onclick=()=>{
+
+document.getElementById("btnJoinCancel").onclick = () => {
   document.getElementById("joinPanel").classList.remove("open");
-  document.getElementById("inpRoom").value="";
+  document.getElementById("inpRoom").value = "";
 };
-document.getElementById("btnCopyCode").onclick=()=>navigator.clipboard?.writeText(roomId).then(()=>showNotif("Скопировано!",1500));
-document.getElementById("btnCancelWait").onclick=()=>{ ws?.close(); showScreen("sMenu"); };
+
+document.getElementById("btnCopyCode").onclick = () => {
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(roomId).then(() => {
+      showNotif("Скопировано!", 1500, "success");
+    });
+  }
+};
+
+document.getElementById("btnCancelWait").onclick = () => { 
+  if (ws) ws.close(1000, "User cancelled");
+  isReconnecting = false;
+  showReconnectPanel(false);
+  showScreen("sMenu"); 
+};
+
+document.getElementById("cancelReconnect").onclick = () => {
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  isReconnecting = false;
+  showReconnectPanel(false);
+  if (ws) ws.close(1000, "User cancelled");
+  showScreen("sMenu");
+};
 
 // Game actions
-function spawnUnit(type){ if(!myRole||!roomId) return; send({type:"spawn",unitType:type}); }
-function sendMode(m){ currentMode=m; updateModeUI(); send({type:"mode",value:m}); }
-function sendReset(){ send({type:"reset"}); }
-function goMenu(){ ws?.close(); gameState=null; winShown=false; showScreen("sMenu"); }
-
-function updateModeUI(){
-  document.getElementById("mAtk").className="mbtn"+(currentMode==="attack"?" atk-on":"");
-  document.getElementById("mDef").className="mbtn"+(currentMode==="defend"?" def-on":"");
-  document.getElementById("modeLbl").textContent=currentMode==="attack"?"АТАКА":"ОБОРОНА";
+function spawnUnit(type){ 
+  if(!myRole || !roomId) {
+    showNotif("Нет подключения к игре", 2000, "warning");
+    return;
+  }
+  send({type:"spawn", unitType:type}); 
 }
 
-const COSTS={miner:50,sword:120,archer:170,spear:150,giant:350};
-const POPS ={miner:1, sword:2,  archer:2,  spear:2,  giant:4};
+function sendMode(m){ 
+  currentMode = m; 
+  updateModeUI(); 
+  send({type:"mode", value:m}); 
+}
+
+function sendReset(){ 
+  send({type:"reset"}); 
+}
+
+function goMenu(){ 
+  if (ws) ws.close(1000, "User left");
+  isReconnecting = false;
+  showReconnectPanel(false);
+  gameState = null; 
+  winShown = false; 
+  showScreen("sMenu"); 
+}
+
+// UI update functions
+function updateModeUI(){
+  document.getElementById("mAtk").className = "mbtn" + (currentMode === "attack" ? " atk-on" : "");
+  document.getElementById("mDef").className = "mbtn" + (currentMode === "defend" ? " def-on" : "");
+  document.getElementById("modeLbl").textContent = currentMode === "attack" ? "АТАКА" : "ОБОРОНА";
+}
+
+const COSTS = {miner:50, sword:120, archer:170, spear:150, giant:350};
+const POPS = {miner:1, sword:2, archer:2, spear:2, giant:4};
+
 function updateHUD(){
-  if(!gameState||!myRole) return;
-  const me=myRole, en=me==="A"?"B":"A";
-  const mg=gameState.gold[me], mp=gameState.pop[me], mc=gameState.popCap[me];
-  document.getElementById("goldMe").textContent=Math.floor(mg);
-  document.getElementById("goldEn").textContent=Math.floor(gameState.gold[en]);
-  document.getElementById("popMe").textContent=mp+"/"+mc;
-  const bm=gameState.bases[me], be=gameState.bases[en];
-  document.getElementById("hpMe").style.width=(bm.hp/bm.maxHp*100)+"%";
-  document.getElementById("hpEn").style.width=(be.hp/be.maxHp*100)+"%";
-  document.getElementById("hpMeN").textContent=Math.ceil(bm.hp);
-  document.getElementById("hpEnN").textContent=Math.ceil(be.hp);
-  document.getElementById("popLbl").textContent=mp+"/"+mc;
-  document.getElementById("popFill").style.width=(mp/mc*100)+"%";
-  UNIT_DEFS.forEach(ud=>{
-    const btn=document.getElementById("ub_"+ud.type);
-    if(btn) btn.classList.toggle("dim",mg<ud.cost||mp+ud.pop>mc);
+  if(!gameState || !myRole) return;
+  
+  const me = myRole, en = me === "A" ? "B" : "A";
+  const mg = gameState.gold[me], mp = gameState.pop[me], mc = gameState.popCap[me];
+  
+  document.getElementById("goldMe").textContent = Math.floor(mg);
+  document.getElementById("goldEn").textContent = Math.floor(gameState.gold[en]);
+  document.getElementById("popMe").textContent = mp + "/" + mc;
+  
+  const bm = gameState.bases[me], be = gameState.bases[en];
+  document.getElementById("hpMe").style.width = (bm.hp / bm.maxHp * 100) + "%";
+  document.getElementById("hpEn").style.width = (be.hp / be.maxHp * 100) + "%";
+  document.getElementById("hpMeN").textContent = Math.ceil(bm.hp);
+  document.getElementById("hpEnN").textContent = Math.ceil(be.hp);
+  
+  document.getElementById("popLbl").textContent = mp + "/" + mc;
+  document.getElementById("popFill").style.width = (mp / mc * 100) + "%";
+  
+  UNIT_DEFS.forEach(ud => {
+    const btn = document.getElementById("ub_" + ud.type);
+    if(btn) btn.classList.toggle("dim", mg < ud.cost || mp + ud.pop > mc);
   });
+  
   if(gameStartTime){
-    const s=Math.floor((Date.now()-gameStartTime)/1000);
-    document.getElementById("gameTimer").textContent=String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");
+    const s = Math.floor((Date.now() - gameStartTime) / 1000);
+    document.getElementById("gameTimer").textContent = 
+      String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
   }
 }
 
 function showWin(winner){
-  const isW=winner===myRole;
-  document.getElementById("wIco").textContent=isW?"🏆":"💀";
-  document.getElementById("wTitle").textContent=isW?"ПОБЕДА!":"ПОРАЖЕНИЕ";
-  document.getElementById("wTitle").className="win-title "+(isW?"victory":"defeat");
-  document.getElementById("wSub").textContent=isW?"Ты уничтожил вражескую базу!":"Твоя база была разрушена";
+  const isW = winner === myRole;
+  document.getElementById("wIco").textContent = isW ? "🏆" : "💀";
+  document.getElementById("wTitle").textContent = isW ? "ПОБЕДА!" : "ПОРАЖЕНИЕ";
+  document.getElementById("wTitle").className = "win-title " + (isW ? "victory" : "defeat");
+  document.getElementById("wSub").textContent = isW ? "Ты уничтожил вражескую базу!" : "Твоя база была разрушена";
   document.getElementById("sWin").classList.add("on");
 }
 
+// Уведомления с типами
 let nt;
-function showNotif(txt,ms=2000){ const el=document.getElementById("notif"); el.textContent=txt; el.classList.add("on"); clearTimeout(nt); nt=setTimeout(()=>el.classList.remove("on"),ms); }
+function showNotif(txt, ms = 2000, type = "normal"){ 
+  const el = document.getElementById("notif"); 
+  el.textContent = txt; 
+  el.className = type === "warning" ? "warning" : type === "success" ? "success" : "";
+  el.classList.add("on"); 
+  clearTimeout(nt); 
+  if (ms > 0) {
+    nt = setTimeout(() => el.classList.remove("on"), ms);
+  }
+}
 
-document.addEventListener("keydown",e=>{ const m={"1":"miner","2":"sword","3":"archer","4":"spear","5":"giant"}; if(m[e.key]) spawnUnit(m[e.key]); if(e.key==="a") sendMode("attack"); if(e.key==="d") sendMode("defend"); });
+// Клавиатурные команды
+document.addEventListener("keydown", e => { 
+  const m = {"1":"miner", "2":"sword", "3":"archer", "4":"spear", "5":"giant"}; 
+  if(m[e.key]) spawnUnit(m[e.key]); 
+  if(e.key === "a") sendMode("attack"); 
+  if(e.key === "d") sendMode("defend"); 
+});
+
+// Привязка кнопок режимов
+document.getElementById("mDef").onclick = () => sendMode("defend");
+document.getElementById("mAtk").onclick = () => sendMode("attack");
+document.getElementById("playAgainBtn").onclick = sendReset;
+document.getElementById("menuBtn").onclick = goMenu;
+
+// Регулярное обновление индикатора соединения
+setInterval(updateConnectionStatus, 1000);
 
 // Init
 buildUnitButtons();
 drawMenu();
 renderGame();
-window.addEventListener("resize",()=>{drawMenu();});
+
+window.addEventListener("resize", () => {
+  drawMenu();
+  resizeGame();
+});
+
+// Предотвращаем скролл на мобильных
+document.body.addEventListener('touchmove', (e) => {
+  if (e.target === document.getElementById('cv')) {
+    e.preventDefault();
+  }
+}, { passive: false });
 </script>
 </body>
 </html>
