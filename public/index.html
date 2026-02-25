@@ -730,7 +730,7 @@ function drawMenuStick(c,x,y,col,right){
 
 // ════════════ NETWORK ════════════════════════════════════════════
 const WS_URL=location.protocol==="https:"?`wss://${location.host}`:`ws://${location.host}`;
-let ws, roomId, myRole, gameState, currentMode="defend", gameStartTime=0;
+let ws, roomId, myRole, gameState, currentMode="defend", gameStartTime=0, winShown=false;
 
 function connect(cb){
   ws=new WebSocket(WS_URL);
@@ -747,8 +747,17 @@ function handleMsg(msg){
     else startGame();
   }
   if(msg.type==="opponent_joined") startGame();
-  if(msg.type==="state"){ gameState=msg.state; updateHUD(); if(gameState.winner&&!document.getElementById("sWin").classList.contains("on")) showWin(gameState.winner); }
-  if(msg.type==="reset_ok"){ document.getElementById("sWin").classList.remove("on"); currentMode="defend"; updateModeUI(); gameStartTime=Date.now(); }
+  if(msg.type==="state"){
+    gameState=msg.state; updateHUD();
+    if(gameState.winner && !winShown){ winShown=true; showWin(gameState.winner); }
+  }
+  if(msg.type==="reset_ok"){
+    document.getElementById("sWin").classList.remove("on");
+    winShown=false; currentMode="defend"; updateModeUI(); gameStartTime=Date.now();
+  }
+  if(msg.type==="opponent_left"){
+    showNotif("Противник покинул игру",4000);
+  }
   if(msg.type==="error") showNotif(msg.msg,2000);
 }
 
@@ -779,7 +788,7 @@ document.getElementById("btnCancelWait").onclick=()=>{ ws?.close(); showScreen("
 function spawnUnit(type){ if(!myRole||!roomId) return; send({type:"spawn",unitType:type}); }
 function sendMode(m){ currentMode=m; updateModeUI(); send({type:"mode",value:m}); }
 function sendReset(){ send({type:"reset"}); }
-function goMenu(){ ws?.close(); gameState=null; showScreen("sMenu"); }
+function goMenu(){ ws?.close(); gameState=null; winShown=false; showScreen("sMenu"); }
 
 function updateModeUI(){
   document.getElementById("mAtk").className="mbtn"+(currentMode==="attack"?" atk-on":"");
@@ -801,6 +810,7 @@ function updateHUD(){
   document.getElementById("hpEn").style.width=(be.hp/be.maxHp*100)+"%";
   document.getElementById("hpMeN").textContent=Math.ceil(bm.hp);
   document.getElementById("hpEnN").textContent=Math.ceil(be.hp);
+  // popLbl mirrors popMe (single source of truth)
   document.getElementById("popLbl").textContent=mp+"/"+mc;
   document.getElementById("popFill").style.width=(mp/mc*100)+"%";
   UNIT_DEFS.forEach(ud=>{
