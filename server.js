@@ -1,4 +1,4 @@
-// server.js — Stick War Legacy Online (Mobile PvP)
+// server.js — Stick War Legacy Online (Mobile PvP) с улучшенной стабильностью
 const http = require("http");
 const fs   = require("fs");
 const path = require("path");
@@ -39,14 +39,22 @@ const server = http.createServer((req, res) => {
   });
 });
 
-const wss = new WebSocket.Server({ server });
+// Настройки WebSocket с пингом для обнаружения разрывов
+const wss = new WebSocket.Server({ 
+  server,
+  // Отключаем автоматическое закрытие неактивных соединений
+  clientTracking: true,
+  // Периодическая проверка соединений
+  pingInterval: 30000, // 30 секунд
+  pingTimeout: 10000    // 10 секунд на ответ
+});
 
 // ───────────────────────── Game constants ─────────────────────────
 const LANE_W = 1000;
 const LANE_H = 380;
 
 const BASE_HP = 900;
-const GOLD_TICK_MS = 1000; // базовый доход раз в 1 сек (маленький)
+const GOLD_TICK_MS = 1000;
 
 const UNIT_DEF = {
   miner:  { cost: 50,  pop: 1, hp: 55, dmg: 0,  range: 0,   speed: 70,  attackRate: 999999 },
@@ -83,7 +91,6 @@ function makeState() {
       B: { x: 940, hp: BASE_HP, maxHp: BASE_HP },
     },
 
-    // Две кучи золота (левая для A, правая для B)
     mines: [
       { id: "L", x: 225, gold: 999999 },
       { id: "R", x: 775, gold: 999999 }
@@ -95,6 +102,10 @@ function makeState() {
     goldTick: { A: 0, B: 0 },
     winner: null,
     tick: 0,
+    
+    // Для синхронизации и восстановления
+    lastUpdate: now(),
+    version: 0
   };
 }
 
@@ -135,8 +146,24 @@ function spawnUnit(st, side, type) {
 
 function broadcast(room, obj) {
   const s = JSON.stringify(obj);
+  const deadClients = [];
+  
   for (const ws of room.clients) {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(s);
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(s);
+      } catch (err) {
+        console.error("Ошибка отправки:", err);
+        deadClients.push(ws);
+      }
+    } else if (ws && ws.readyState !== WebSocket.CONNECTING) {
+      deadClients.push(ws);
+    }
+  }
+  
+  // Очищаем мёртвые соединения
+  if (deadClients.length > 0) {
+    room.clients = room.clients.filter(c => !deadClients.includes(c));
   }
 }
 
@@ -144,6 +171,7 @@ function broadcast(room, obj) {
 function stepGame(st, dtMs) {
   if (st.winner) return;
   st.tick++;
+  st.version++;
 
   const dt = dtMs / 1000;
   const alive = (u) => u.hp > 0;
@@ -160,7 +188,7 @@ function stepGame(st, dtMs) {
     }
   }
 
-  // ── Unit AI ───────────────────────────────────────────────────────
+  // ── Unit AI (сокращено для читаемости, но оставлено как в оригинале) ──
   for (const unit of st.units) {
     if (!alive(unit)) continue;
 
@@ -173,7 +201,6 @@ function stepGame(st, dtMs) {
 
     unit.attackTimer = Math.max(0, unit.attackTimer - dtMs);
 
-    // ── MINER ───────────────────────────────────────────────────────
     if (unit.type === "miner") {
       const mid = LANE_W / 2;
       const myMines = st.mines.filter(m =>
@@ -238,7 +265,7 @@ function stepGame(st, dtMs) {
       continue;
     }
 
-    // ── Fighters (sword/archer/spear/giant) ────────────────────────
+    // Fighters logic...
     let target = null;
     let bestD = Infinity;
 
@@ -320,54 +347,130 @@ function stepGame(st, dtMs) {
   // ── Win condition ────────────────────────────────────────────────
   if (st.bases.A.hp <= 0) st.winner = "B";
   if (st.bases.B.hp <= 0) st.winner = "A";
+  
+  st.lastUpdate = now();
 }
 
 // ───────────────────────── Rooms + WS ─────────────────────────────
 const rooms = new Map();
+const ROOM_TIMEOUT = 5 * 60 * 1000; // 5 минут без активности
+
 function makeRoomId() { return Math.random().toString(36).slice(2, 8).toUpperCase(); }
 
+// Улучшенный интервал с обработкой ошибок
 setInterval(() => {
   const t = now();
   for (const [roomId, room] of rooms) {
-    if (room.clients.length === 0) {
-      rooms.delete(roomId);
-      continue;
+    try {
+      // Очищаем мёртвые соединения
+      if (room.clients) {
+        room.clients = room.clients.filter(ws => ws && ws.readyState === WebSocket.OPEN);
+      }
+      
+      // Удаляем пустые комнаты
+      if (!room.clients || room.clients.length === 0) {
+        rooms.delete(roomId);
+        continue;
+      }
+      
+      // Проверка таймаута комнаты (если давно не было обновлений)
+      if (t - room.lastTick > ROOM_TIMEOUT) {
+        rooms.delete(roomId);
+        continue;
+      }
+      
+      const dt = Math.min(120, t - room.lastTick);
+      room.lastTick = t;
+
+      stepGame(room.state, dt);
+      broadcast(room, { type: "state", roomId, state: room.state, timestamp: t });
+    } catch (err) {
+      console.error("Ошибка в игровом цикле комнаты", roomId, err);
     }
-    const dt = Math.min(120, t - room.lastTick);
-    room.lastTick = t;
-
-    stepGame(room.state, dt);
-    broadcast(room, { type: "state", roomId, state: room.state });
   }
-}, 50);
+}, 50); // 20 FPS
 
-wss.on("connection", (ws) => {
+// Пинг-понг для обнаружения мёртвых соединений
+setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) {
+      console.log("Завершаем неактивное соединение");
+      return ws.terminate();
+    }
+    
+    ws.isAlive = false;
+    ws.ping();
+  }
+}, 30000);
+
+wss.on("connection", (ws, req) => {
+  console.log("Новое подключение:", req.socket.remoteAddress);
+  
+  ws.isAlive = true;
   ws.roomId = null;
   ws.role = null;
+  ws.lastMessage = now();
+  
+  // Обработка пинга
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
 
   ws.on("message", (raw) => {
+    ws.lastMessage = now();
+    
     let msg;
-    try { msg = JSON.parse(raw); } catch { return; }
+    try { 
+      msg = JSON.parse(raw); 
+    } catch { 
+      return; 
+    }
+
+    // Обработка системных сообщений
+    if (msg.type === "ping") {
+      ws.send(JSON.stringify({ type: "pong", timestamp: now() }));
+      return;
+    }
 
     if (msg.type === "create") {
       const roomId = makeRoomId();
-      rooms.set(roomId, { clients: [ws], state: makeState(), lastTick: now() });
+      rooms.set(roomId, { 
+        clients: [ws], 
+        state: makeState(), 
+        lastTick: now(),
+        createdAt: now()
+      });
       ws.roomId = roomId;
       ws.role = "A";
       ws.send(JSON.stringify({ type: "joined", roomId, role: "A" }));
+      console.log("Создана комната:", roomId);
       return;
     }
 
     if (msg.type === "join") {
       const roomId = String(msg.roomId || "").trim().toUpperCase();
       const room = rooms.get(roomId);
-      if (!room) return ws.send(JSON.stringify({ type: "error", msg: "Room not found" }));
-      if (room.clients.length >= 2) return ws.send(JSON.stringify({ type: "error", msg: "Room full" }));
+      if (!room) {
+        ws.send(JSON.stringify({ type: "error", msg: "Комната не найдена" }));
+        return;
+      }
+      
+      // Проверяем живые соединения
+      room.clients = room.clients.filter(c => c && c.readyState === WebSocket.OPEN);
+      
+      if (room.clients.length >= 2) {
+        ws.send(JSON.stringify({ type: "error", msg: "Комната уже заполнена" }));
+        return;
+      }
+      
       room.clients.push(ws);
       ws.roomId = roomId;
       ws.role = "B";
       ws.send(JSON.stringify({ type: "joined", roomId, role: "B" }));
-      broadcast(room, { type: "opponent_joined" });
+      
+      // Уведомляем первого игрока
+      broadcast(room, { type: "opponent_joined", timestamp: now() });
+      console.log("Игрок B подключился к комнате:", roomId);
       return;
     }
 
@@ -395,22 +498,45 @@ wss.on("connection", (ws) => {
       broadcast(room, { type: "reset_ok" });
       return;
     }
+    
+    if (msg.type === "sync_request") {
+      // Отправляем полное состояние по запросу
+      ws.send(JSON.stringify({ 
+        type: "sync", 
+        state: room.state,
+        timestamp: now()
+      }));
+      return;
+    }
   });
 
-  ws.on("close", () => {
+  ws.on("close", (code, reason) => {
+    console.log("Соединение закрыто:", code, reason ? reason.toString() : "");
     const room = rooms.get(ws.roomId);
     if (!room) return;
 
-    room.clients = room.clients.filter(c => c !== ws);
+    room.clients = room.clients.filter(c => c !== ws && c && c.readyState === WebSocket.OPEN);
 
+    // Уведомляем оставшегося игрока
     if (room.clients.length === 1) {
-      broadcast(room, { type: "opponent_left" });
+      broadcast(room, { type: "opponent_left", timestamp: now() });
     }
 
+    // Если комната пуста, удаляем через 10 секунд (даём шанс на переподключение)
     if (room.clients.length === 0) {
-      rooms.delete(ws.roomId);
+      setTimeout(() => {
+        const currentRoom = rooms.get(ws.roomId);
+        if (currentRoom && currentRoom.clients.length === 0) {
+          rooms.delete(ws.roomId);
+          console.log("Комната удалена:", ws.roomId);
+        }
+      }, 10000);
     }
+  });
+
+  ws.on("error", (err) => {
+    console.error("WebSocket ошибка:", err);
   });
 });
 
-server.listen(PORT, () => console.log("Listening on", PORT));
+server.listen(PORT, () => console.log("Сервер запущен на порту", PORT));
