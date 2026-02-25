@@ -169,16 +169,20 @@ function stepGame(st, dtMs) {
     const closestEnemy = nearestEnemy(unit, enemies);
 
     if (mode === "defend" && unit.type !== "giant") {
-      // hold the line near home base
+      // hold the line near home base — but still fight enemies that come close
       const holdX = unit.side === "A" ? homeLine + 60 : homeLine - 60;
+      const enemyBaseClose = dist1d(unit.x, enemyBase.x) <= 72;
       if (!closestEnemy || dist1d(unit.x, closestEnemy.x) > unit.range + 40) {
-        // move to hold position
-        if (Math.abs(unit.x - holdX) > 15) {
-          const sign = unit.x < holdX ? 1 : -1;
-          unit.x += sign * unit.speed * dt;
+        if (!enemyBaseClose) {
+          // move to hold position
+          if (Math.abs(unit.x - holdX) > 15) {
+            const sign = unit.x < holdX ? 1 : -1;
+            unit.x += sign * unit.speed * dt;
+          }
+          unit.state = "walk";
+          continue;
         }
-        unit.state = "walk";
-        continue;
+        // fall through to attack enemy base if it's right there
       }
     }
 
@@ -193,12 +197,13 @@ function stepGame(st, dtMs) {
           unit.attackTimer = unit.attackRate;
 
           if (unit.type === "archer" || unit.type === "spear") {
-            // fire projectile
+            // fire projectile toward the actual enemy position
+            const shotDir = closestEnemy.x > unit.x ? 1 : -1;
             st.projectiles.push({
               id: mkId(),
               owner: unit.side,
               x: unit.x,
-              vx: dir * (unit.type === "archer" ? 480 : 340),
+              vx: shotDir * (unit.type === "archer" ? 480 : 340),
               dmg: unit.dmg,
               pierce: unit.type === "spear",
               ttl: 2000,
@@ -215,8 +220,9 @@ function stepGame(st, dtMs) {
           }
         }
       } else {
-        // move toward enemy
-        unit.x += dir * unit.speed * dt;
+        // move toward enemy (use actual direction to enemy, not unit's default dir)
+        const toEnemy = closestEnemy.x > unit.x ? 1 : -1;
+        unit.x += toEnemy * unit.speed * dt;
         unit.state = "walk";
       }
     } else {
