@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Stick War Lite PvP</title>
+  <style>
+    body{margin:0;background:#0b1020;color:#e9ecff;font-family:system-ui,Arial}
+    .wrap{max-width:980px;margin:0 auto;padding:12px}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    input,button{font-size:16px;border-radius:14px;border:1px solid #2a3766;background:#0e1530;color:#e9ecff;padding:12px 14px}
+    button{cursor:pointer}
+    .badge{display:inline-block;padding:6px 10px;border-radius:999px;border:1px solid #2a3766;background:#0e1530;font-size:13px;opacity:.9}
+    canvas{width:100%;max-width:960px;background:#0e1530;border:1px solid #2a3766;border-radius:16px;display:block;touch-action:none}
+    .panel{
+      display:grid; grid-template-columns: repeat(5, 1fr);
+      gap:10px; margin-top:10px;
+    }
+    .big{padding:16px 10px;font-weight:700}
+    .tiny{opacity:.8;font-size:13px;line-height:1.4}
+    .two{grid-column: span 2;}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="row">
+    <button id="btnCreate">Создать</button>
+    <input id="inpRoom" placeholder="ROOM ID" />
+    <button id="btnJoin">Войти</button>
+    <button id="btnReset">Reset</button>
+  </div>
+
+  <div class="row" style="margin:10px 0">
+    <span class="badge" id="bConn">WS: —</span>
+    <span class="badge" id="bRoom">Room: —</span>
+    <span class="badge" id="bRole">Role: —</span>
+    <span class="badge" id="bGold">Gold: —</span>
+    <span class="badge" id="bPop">Pop: —</span>
+  </div>
+
+  <canvas id="cv" width="1000" height="380"></canvas>
+
+  <div class="panel">
+    <button class="big" id="btnMiner">⛏ Miner<br><span style="opacity:.8">50</span></button>
+    <button class="big" id="btnSword">🗡 Sword<br><span style="opacity:.8">120</span></button>
+    <button class="big" id="btnArcher">🏹 Archer<br><span style="opacity:.8">170</span></button>
+
+    <button class="big" id="btnAttack">⚔️ ATTACK</button>
+    <button class="big" id="btnDefend">🛡 DEFEND</button>
+  </div>
+
+  <p class="tiny">
+    Это “Stick War Lite”: юниты сами идут и дерутся. Ты управляешь спавном армии и режимом.
+    Следующий шаг: спец-скилл (заморозка/бафф), больше юнитов и апгрейды.
+  </p>
+</div>
+
+<script>
+  const WS_URL = (location.protocol === "https:")
+    ? `wss://${location.host}`
+    : `ws://${location.host}`;
+
+  const cv = document.getElementById("cv");
+  const ctx = cv.getContext("2d");
+
+  const bConn = document.getElementById("bConn");
+  const bRoom = document.getElementById("bRoom");
+  const bRole = document.getElementById("bRole");
+  const bGold = document.getElementById("bGold");
+  const bPop  = document.getElementById("bPop");
+
+  const btnCreate = document.getElementById("btnCreate");
+  const btnJoin = document.getElementById("btnJoin");
+  const btnReset = document.getElementById("btnReset");
+  const inpRoom = document.getElementById("inpRoom");
+
+  const btnMiner  = document.getElementById("btnMiner");
+  const btnSword  = document.getElementById("btnSword");
+  const btnArcher = document.getElementById("btnArcher");
+  const btnAttack = document.getElementById("btnAttack");
+  const btnDefend = document.getElementById("btnDefend");
+
+  let ws = null;
+  let roomId = null;
+  let role = null;
+  let state = null;
+
+  function connect(){
+    ws = new WebSocket(WS_URL);
+    bConn.textContent = "WS: connecting…";
+    ws.onopen = () => bConn.textContent = "WS: connected";
+
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === "joined"){
+        roomId = msg.roomId; role = msg.role;
+        bRoom.textContent = "Room: " + roomId;
+        bRole.textContent = "Role: " + role;
+      }
+      if (msg.type === "state"){
+        state = msg.state;
+        if (role){
+          bGold.textContent = "Gold: " + state.gold[role];
+          bPop.textContent  = "Pop: " + state.pop[role] + "/" + state.popCap[role];
+        }
+      }
+      if (msg.type === "error") alert(msg.msg);
+    };
+
+    ws.onclose = () => bConn.textContent = "WS: closed";
+  }
+
+  connect();
+
+  btnCreate.onclick = () => ws.send(JSON.stringify({ type:"create" }));
+  btnJoin.onclick = () => ws.send(JSON.stringify({ type:"join", roomId: inpRoom.value }));
+  btnReset.onclick = () => ws.send(JSON.stringify({ type:"reset" }));
+
+  function spawn(t){
+    if (!roomId || !role) return alert("Сначала создай/войти в комнату");
+    ws.send(JSON.stringify({ type:"spawn", unitType: t }));
+  }
+  btnMiner.onclick  = () => spawn("miner");
+  btnSword.onclick  = () => spawn("sword");
+  btnArcher.onclick = () => spawn("archer");
+
+  btnAttack.onclick = () => ws.send(JSON.stringify({ type:"mode", value:"attack" }));
+  btnDefend.onclick = () => ws.send(JSON.stringify({ type:"mode", value:"defend" }));
+
+  function draw(){
+    requestAnimationFrame(draw);
+    ctx.clearRect(0,0,cv.width,cv.height);
+
+    if (!state){
+      ctx.fillStyle="#e9ecff"; ctx.font="18px system-ui";
+      ctx.fillText("Жду state… Создай/войти в комнату", 20, 40);
+      return;
+    }
+
+    const w = state.lane.w, h = state.lane.h;
+
+    // фон + земля
+    ctx.fillStyle="#0e1530"; ctx.fillRect(0,0,w,h);
+    ctx.fillStyle="rgba(255,255,255,0.05)"; ctx.fillRect(0,h-70,w,70);
+
+    // базы
+    function drawBase(side){
+      const b = state.bases[side];
+      ctx.fillStyle = side==="A" ? "rgba(255,80,80,0.9)" : "rgba(80,160,255,0.9)";
+      ctx.fillRect(b.x-18, h-140, 36, 90);
+
+      // hp bar
+      ctx.fillStyle="rgba(255,255,255,0.14)";
+      ctx.fillRect(b.x-40, h-155, 80, 10);
+      ctx.fillStyle="#c9a84c";
+      ctx.fillRect(b.x-40, h-155, 80*(b.hp/650), 10);
+
+      ctx.fillStyle="#e9ecff"; ctx.font="14px system-ui";
+      ctx.fillText(side, b.x-5, h-110);
+    }
+    drawBase("A"); drawBase("B");
+
+    // снаряды
+    ctx.strokeStyle="#e8c97a"; ctx.lineWidth=3;
+    for (const p of state.projectiles){
+      ctx.beginPath();
+      ctx.moveTo(p.x-10, h-90);
+      ctx.lineTo(p.x+10, h-90);
+      ctx.stroke();
+    }
+
+    // юниты
+    for (const u of state.units){
+      const y = h-90; // одна линия
+      const col = u.side==="A" ? "rgba(255,80,80,0.9)" : "rgba(80,160,255,0.9)";
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(u.x, y, 14, 0, Math.PI*2);
+      ctx.fill();
+
+      // hp mini
+      ctx.fillStyle="rgba(255,255,255,0.12)";
+      ctx.fillRect(u.x-16, y-24, 32, 5);
+      ctx.fillStyle="#c9a84c";
+      const maxHp = (u.type==="miner"?45:(u.type==="sword"?95:65));
+      ctx.fillRect(u.x-16, y-24, 32*(u.hp/maxHp), 5);
+
+      ctx.fillStyle="#e9ecff"; ctx.font="11px system-ui";
+      ctx.fillText(u.type[0].toUpperCase(), u.x-4, y+4);
+    }
+
+    // победа
+    if (state.winner){
+      ctx.fillStyle="rgba(0,0,0,0.55)";
+      ctx.fillRect(0,0,w,h);
+      ctx.fillStyle="#e9ecff"; ctx.font="bold 40px system-ui";
+      ctx.fillText("Победил: " + state.winner, 360, 190);
+      ctx.font="16px system-ui";
+    }
+  }
+  draw();
+</script>
+</body>
+</html>
