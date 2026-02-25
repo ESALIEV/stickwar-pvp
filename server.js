@@ -9,305 +9,55 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 
 const server = http.createServer((req, res) => {
   if (req.url === "/health") {
-    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
     return res.end("ok");
   }
+
   const urlPath  = req.url === "/" ? "/index.html" : req.url;
   const filePath = path.join(PUBLIC_DIR, urlPath);
-  if (!filePath.startsWith(PUBLIC_DIR)) { res.writeHead(403); return res.end(); }
+
+  if (!filePath.startsWith(PUBLIC_DIR)) {
+    res.writeHead(403);
+    return res.end("Forbidden");
+  }
 
   fs.readFile(filePath, (err, data) => {
-    if (err) { res.writeHead(404); return res.end("Not found"); }
-    const ext  = path.extname(filePath).toLowerCase();
-    const mime = { ".html":"text/html;charset=utf-8", ".js":"application/javascript;charset=utf-8", ".css":"text/css;charset=utf-8" };
-    res.writeHead(200, { "Content-Type": mime[ext] || "application/octet-stream" });
+    if (err) {
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      return res.end("Not found");
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    const type =
+      ext === ".html" ? "text/html; charset=utf-8" :
+      ext === ".js"   ? "application/javascript; charset=utf-8" :
+      ext === ".css"  ? "text/css; charset=utf-8" :
+      "application/octet-stream";
+
+    res.writeHead(200, { "Content-Type": type });
     res.end(data);
   });
 });
 
 const wss = new WebSocket.Server({ server });
-const rooms = new Map();
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-const LANE_W = 1000, LANE_H = 380;
-const BASE_HP = 800;
-const GOLD_TICK_MS = 1500; // base gold every 1.5s
+// ───────────────────────── Game constants ─────────────────────────
+const LANE_W = 1000;
+const LANE_H = 380;
+
+const BASE_HP = 900;
+const GOLD_TICK_MS = 1000; // базовый доход раз в 1 сек (маленький, чтобы игра не встала)
 
 const UNIT_DEF = {
-  miner:  { hp:45, speed:55, dmg:0,  range:0,   attackRate:0,    cost:50,  pop:1, reward:12 },
-  sword:  { hp:120, speed:65, dmg:22, range:55,  attackRate:1800, cost:120, pop:2, reward:25 },
-  archer: { hp:65,  speed:60, dmg:14, range:290, attackRate:2200, cost:170, pop:2, reward:20 },
-  giant:  { hp:380, speed:38, dmg:45, range:70,  attackRate:2500, cost:350, pop:4, reward:80 },
-  spear:  { hp:90,  speed:58, dmg:18, range:130, attackRate:1600, cost:150, pop:2, reward:28 },
+  miner:  { cost: 50,  pop: 1, hp: 55, dmg: 0,  range: 0,   speed: 70,  attackRate: 999999 },
+  sword:  { cost: 120, pop: 1, hp: 110,dmg: 14, range: 24,  speed: 85,  attackRate: 700 },
+  archer: { cost: 170, pop: 1, hp: 75, dmg: 9,  range: 165, speed: 75,  attackRate: 950, projSpeed: 240 },
 };
 
-let uid = 0;
-function mkId() { return ++uid; }
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 function now() { return Date.now(); }
-function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function mkId() { return Math.random().toString(36).slice(2); }
 function dist1d(a, b) { return Math.abs(a - b); }
-
-function makeRoom(idA) {
-  return {
-    clients: { A: idA, B: null },
-    state: makeState(),
-    lastTick: now(),
-  };
-}
-
-function makeState() {
-  return {
-    lane: { w: LANE_W, h: LANE_H },
-    gold: { A: 100, B: 100 },
-    pop:  { A: 0,   B: 0   },
-    popCap: { A: 10, B: 10 },
-    mode: { A: "defend", B: "defend" },
-    bases: {
-      A: { x: 60,  hp: BASE_HP, maxHp: BASE_HP },
-      B: { x: 940, hp: BASE_HP, maxHp: BASE_HP },
-    },
-    units: [],
-    projectiles: [],
-    goldTick: { A: 0, B: 0 }, // ms accumulator for base gold
-    winner: null,
-    tick: 0,
-  };
-}
-
-// ─── Game Logic ───────────────────────────────────────────────────────────────
-function spawnUnit(st, side, type) {
-  const def = UNIT_DEF[type];
-  if (!def) return false;
-  if (st.gold[side] < def.cost) return "nogold";
-  if (st.pop[side] + def.pop > st.popCap[side]) return "nopop";
-
-  st.gold[side] -= def.cost;
-  st.pop[side]  += def.pop;
-
-  const base = st.bases[side];
-  const dir  = side === "A" ? 1 : -1;
-  const startX = side === "A" ? base.x + 40 : base.x - 40;
-
-  const unit = {
-    id: mkId(), side, type,
-    x: startX, y: 0,
-    hp: def.hp, maxHp: def.hp,
-    speed: def.speed,
-    dmg: def.dmg, range: def.range,
-    attackRate: def.attackRate,
-    attackTimer: 0,
-    state: "walk", // walk | fight | mine | dead
-    targetId: null,
-  };
-
-  st.units.push(unit);
-  return true;
-}
-
-function stepGame(st, dtMs) {
-  if (st.winner) return;
-  st.tick++;
-
-  const dt = dtMs / 1000;
-  const alive = (u) => u.hp > 0;
-  // Snapshot alive units at start of tick — prevents dead units from being targeted
-  // and prevents double-reward when a unit dies mid-tick
-  const unitsA = st.units.filter(u => u.side === "A" && alive(u));
-  const unitsB = st.units.filter(u => u.side === "B" && alive(u));
-  // Track units killed this tick to prevent double gold rewards
-  const killedThisTick = new Set();
-
-  // ── Base gold income ──────────────────────────────────────────────────────
-  for (const side of ["A", "B"]) {
-    st.goldTick[side] += dtMs;
-    if (st.goldTick[side] >= GOLD_TICK_MS) {
-      st.goldTick[side] -= GOLD_TICK_MS;
-      // count miners for bonus
-      const minerCount = st.units.filter(u => u.side === side && u.type === "miner" && alive(u)).length;
-      st.gold[side] += 5 + minerCount * 8;
-    }
-  }
-
-  // ── Unit AI ───────────────────────────────────────────────────────────────
-  for (const unit of st.units) {
-    if (!alive(unit)) continue;
-
-    const enemySide    = unit.side === "A" ? "B" : "A";
-    const enemies      = (unit.side === "A" ? unitsB : unitsA).filter(alive);
-    const myBase       = st.bases[unit.side];
-    const enemyBase    = st.bases[enemySide];
-    const mode         = st.mode[unit.side];
-    const dir          = unit.side === "A" ? 1 : -1;
-    const homeLine     = unit.side === "A" ? myBase.x + 80 : myBase.x - 80;
-    const frontLine    = unit.side === "A" ? homeLine + 30 : homeLine - 30;
-
-    unit.attackTimer   = Math.max(0, unit.attackTimer - dtMs);
-
-    if (unit.type === "miner") {
-      // miners just walk forward slowly, generate gold (already counted above)
-      // they don't fight — retreat if enemy is close
-      const closestEnemy = nearestEnemy(unit, enemies);
-      if (closestEnemy && dist1d(unit.x, closestEnemy.x) < 120) {
-        // retreat to base
-        unit.x -= dir * unit.speed * dt * 0.8;
-        unit.state = "walk";
-      } else {
-        // walk to roughly 200 from enemy base
-        const target = unit.side === "A" ? enemyBase.x - 200 : enemyBase.x + 200;
-        if (Math.abs(unit.x - target) > 10) {
-          unit.x += dir * unit.speed * dt * 0.7;
-          unit.state = "walk";
-        } else {
-          unit.state = "mine";
-        }
-      }
-      unit.x = clamp(unit.x, myBase.x + 10, enemyBase.x - 10);
-      continue;
-    }
-
-    // Combat units (sword/archer/spear/giant)
-    const closestEnemy = nearestEnemy(unit, enemies);
-
-    if (mode === "defend" && unit.type !== "giant") {
-      // hold the line near home base — but still fight enemies that come close
-      const holdX = unit.side === "A" ? homeLine + 60 : homeLine - 60;
-      const enemyBaseClose = dist1d(unit.x, enemyBase.x) <= 72;
-      if (!closestEnemy || dist1d(unit.x, closestEnemy.x) > unit.range + 40) {
-        if (!enemyBaseClose) {
-          // move to hold position
-          if (Math.abs(unit.x - holdX) > 15) {
-            const sign = unit.x < holdX ? 1 : -1;
-            unit.x += sign * unit.speed * dt;
-          }
-          unit.state = "walk";
-          continue;
-        }
-        // fall through to attack enemy base if it's right there
-      }
-    }
-
-    // ATTACK logic
-    if (closestEnemy) {
-      const d = dist1d(unit.x, closestEnemy.x);
-
-      if (d <= unit.range) {
-        // in range — attack
-        unit.state = "fight";
-        if (unit.attackTimer === 0) {
-          unit.attackTimer = unit.attackRate;
-
-          if (unit.type === "archer" || unit.type === "spear") {
-            // fire projectile toward the actual enemy position
-            const shotDir = closestEnemy.x > unit.x ? 1 : -1;
-            st.projectiles.push({
-              id: mkId(),
-              owner: unit.side,
-              x: unit.x,
-              vx: shotDir * (unit.type === "archer" ? 480 : 340),
-              dmg: unit.dmg,
-              pierce: unit.type === "spear",
-              ttl: 2000,
-              hit: [],
-            });
-          } else {
-            // melee
-            closestEnemy.hp -= unit.dmg;
-            if (closestEnemy.hp <= 0 && !killedThisTick.has(closestEnemy.id)) {
-              closestEnemy.hp = 0;
-              killedThisTick.add(closestEnemy.id);
-              st.gold[unit.side] += UNIT_DEF[closestEnemy.type]?.reward || 15;
-            }
-          }
-        }
-      } else {
-        // move toward enemy (use actual direction to enemy, not unit's default dir)
-        const toEnemy = closestEnemy.x > unit.x ? 1 : -1;
-        unit.x += toEnemy * unit.speed * dt;
-        unit.state = "walk";
-      }
-    } else {
-      // no enemies — march to enemy base
-      if (dist1d(unit.x, enemyBase.x) > 72) {
-        unit.x += dir * unit.speed * dt;
-        unit.state = "walk";
-      } else {
-        // attack base
-        unit.state = "fight";
-        if (unit.attackTimer === 0) {
-          unit.attackTimer = unit.attackRate;
-          enemyBase.hp -= unit.dmg;
-          if (enemyBase.hp <= 0) {
-            enemyBase.hp = 0;
-            st.winner = unit.side;
-          }
-        }
-      }
-    }
-
-    unit.x = clamp(unit.x, 30, LANE_W - 30);
-  }
-
-  // ── Projectiles ───────────────────────────────────────────────────────────
-  for (let i = st.projectiles.length - 1; i >= 0; i--) {
-    const p = st.projectiles[i];
-    p.ttl -= dtMs;
-    p.x   += p.vx * dt;
-
-    if (p.ttl <= 0 || p.x < 0 || p.x > LANE_W) {
-      st.projectiles.splice(i, 1);
-      continue;
-    }
-
-    const enemySide = p.owner === "A" ? "B" : "A";
-    const enemyBase = st.bases[enemySide];
-
-    let hit = false;
-    for (const u of st.units) {
-      if (u.side !== enemySide || u.hp <= 0) continue;
-      if (p.hit.includes(u.id)) continue;
-      if (Math.abs(u.x - p.x) < 22) {
-        u.hp -= p.dmg;
-        p.hit.push(u.id);
-        if (u.hp <= 0 && !killedThisTick.has(u.id)) {
-          u.hp = 0;
-          killedThisTick.add(u.id);
-          st.gold[p.owner] += UNIT_DEF[u.type]?.reward || 15;
-        } else if (u.hp <= 0) {
-          u.hp = 0; // already rewarded, just clamp hp
-        }
-        if (!p.pierce) { hit = true; break; }
-      }
-    }
-
-    // hit base
-    if (Math.abs(p.x - enemyBase.x) < 50) {
-      enemyBase.hp -= p.dmg;
-      if (enemyBase.hp <= 0) { enemyBase.hp = 0; st.winner = p.owner; }
-      hit = true;
-    }
-
-    if (hit && !p.pierce) {
-      st.projectiles.splice(i, 1);
-      continue;
-    }
-  }
-
-  // ── Clean dead units ──────────────────────────────────────────────────────
-  for (const u of st.units) {
-    if (u.hp <= 0 && u.hp !== -999) {
-      // Only subtract pop once per death (killedThisTick prevents duplicate rewards above,
-      // but pop deduction happens here — mark with -999 to skip on next pass)
-      st.pop[u.side] -= UNIT_DEF[u.type]?.pop || 1;
-      if (st.pop[u.side] < 0) st.pop[u.side] = 0;
-      u.hp = -999; // mark for removal
-    }
-  }
-  st.units = st.units.filter(u => u.hp !== -999);
-
-  // ── Gold cap ──────────────────────────────────────────────────────────────
-  st.gold.A = Math.min(st.gold.A, 9999);
-  st.gold.B = Math.min(st.gold.B, 9999);
-}
 
 function nearestEnemy(unit, enemies) {
   let best = null, bestD = Infinity;
@@ -318,107 +68,324 @@ function nearestEnemy(unit, enemies) {
   return best;
 }
 
-// ─── Tick loop ────────────────────────────────────────────────────────────────
+function makeState() {
+  return {
+    lane: { w: LANE_W, h: LANE_H },
+    gold: { A: 100, B: 100 },
+    pop:  { A: 0,   B: 0   },
+    popCap: { A: 10, B: 10 },
+    mode: { A: "defend", B: "defend" },
+
+    bases: {
+      A: { x: 60,  hp: BASE_HP, maxHp: BASE_HP },
+      B: { x: 940, hp: BASE_HP, maxHp: BASE_HP },
+    },
+
+    // ДВЕ кучи золота (как на фоне): левая для A, правая для B
+    mines: [
+      { id: "L", x: 225, gold: 999999 },
+      { id: "R", x: 775, gold: 999999 }
+    ],
+
+    units: [],
+    projectiles: [],
+
+    goldTick: { A: 0, B: 0 }, // ms accumulator for base gold
+    winner: null,
+    tick: 0,
+  };
+}
+
+function spawnUnit(st, side, type) {
+  const def = UNIT_DEF[type];
+  if (!def) return false;
+  if (st.gold[side] < def.cost) return "nogold";
+  if (st.pop[side] + def.pop > st.popCap[side]) return "nopop";
+  if (st.winner) return "ended";
+
+  st.gold[side] -= def.cost;
+  st.pop[side]  += def.pop;
+
+  const base = st.bases[side];
+  const startX = side === "A" ? base.x + 40 : base.x - 40;
+
+  const unit = {
+    id: mkId(), side, type,
+    x: startX, y: 0,
+    hp: def.hp, maxHp: def.hp,
+    speed: def.speed,
+    dmg: def.dmg, range: def.range,
+    attackRate: def.attackRate,
+    attackTimer: 0,
+    state: (type === "miner") ? "toMine" : "walk", // walk | fight | toMine | mining | toBase | dead
+    targetId: null,
+
+    // miner-only
+    carry: 0,       // сколько золота несёт
+    mineTimer: 0,   // сколько копает (ms)
+  };
+
+  st.units.push(unit);
+  return true;
+}
+
+function broadcast(room, obj) {
+  const s = JSON.stringify(obj);
+  for (const ws of room.clients) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(s);
+  }
+}
+
+// ───────────────────────── Core simulation ─────────────────────────
+function stepGame(st, dtMs) {
+  if (st.winner) return;
+  st.tick++;
+
+  const dt = dtMs / 1000;
+  const alive = (u) => u.hp > 0;
+
+  const unitsA = st.units.filter(u => u.side === "A" && alive(u));
+  const unitsB = st.units.filter(u => u.side === "B" && alive(u));
+
+  // ── Small passive gold income ─────────────────────────────────────
+  // Чтобы игра не стопорилась, но основное золото приносит miner.
+  for (const side of ["A", "B"]) {
+    st.goldTick[side] += dtMs;
+    if (st.goldTick[side] >= GOLD_TICK_MS) {
+      st.goldTick[side] -= GOLD_TICK_MS;
+      st.gold[side] += 3;
+    }
+  }
+
+  // ── Unit AI ───────────────────────────────────────────────────────
+  for (const unit of st.units) {
+    if (!alive(unit)) continue;
+
+    const enemySide = unit.side === "A" ? "B" : "A";
+    const enemies   = (unit.side === "A" ? unitsB : unitsA).filter(alive);
+
+    const myBase    = st.bases[unit.side];
+    const enemyBase = st.bases[enemySide];
+    const dir       = unit.side === "A" ? 1 : -1;
+
+    // tick attack timer
+    unit.attackTimer = Math.max(0, unit.attackTimer - dtMs);
+
+    // ── MINER: real mine loop ───────────────────────────────────────
+    if (unit.type === "miner") {
+      const mine = (unit.side === "A") ? st.mines[0] : st.mines[1];
+      const closestEnemy = nearestEnemy(unit, enemies);
+
+      // danger → run home
+      if (closestEnemy && dist1d(unit.x, closestEnemy.x) < 140) {
+        const backDir = (unit.side === "A") ? -1 : 1;
+        unit.x += backDir * unit.speed * dt;
+        unit.state = "toBase";
+      } else {
+        if (unit.carry > 0) {
+          // return to base to deposit
+          const toBase = myBase.x - unit.x;
+          if (Math.abs(toBase) <= 22) {
+            st.gold[unit.side] += unit.carry;
+            unit.carry = 0;
+            unit.mineTimer = 0;
+            unit.state = "toMine";
+          } else {
+            unit.x += Math.sign(toBase) * unit.speed * dt;
+            unit.state = "toBase";
+          }
+        } else {
+          // go mine
+          const toMine = mine.x - unit.x;
+          if (Math.abs(toMine) <= 18) {
+            unit.mineTimer += dtMs;
+            unit.state = "mining";
+            if (unit.mineTimer >= 1200) { // 1.2 sec per добыча
+              unit.mineTimer = 0;
+              unit.carry = 20;
+              unit.state = "toBase";
+            }
+          } else {
+            unit.x += Math.sign(toMine) * unit.speed * dt;
+            unit.state = "toMine";
+          }
+        }
+      }
+
+      // safe clamp (fix for both sides)
+      unit.x = clamp(unit.x, 30, LANE_W - 30);
+      continue;
+    }
+
+    // ── Fighters (sword/archer) ─────────────────────────────────────
+    // choose nearest enemy in front
+    let target = null;
+    let bestD = Infinity;
+
+    for (const e of enemies) {
+      const dx = e.x - unit.x;
+      if (unit.side === "A" && dx < 0) continue;
+      if (unit.side === "B" && dx > 0) continue;
+      const d = Math.abs(dx);
+      if (d < bestD) { bestD = d; target = e; }
+    }
+
+    // if no enemy, move to enemy base
+    const baseDist = Math.abs(enemyBase.x - unit.x);
+
+    const inRangeEnemy = target && bestD <= unit.range;
+    const inRangeBase  = baseDist <= unit.range;
+
+    if (inRangeEnemy || (!target && inRangeBase)) {
+      // attack
+      if (unit.attackTimer === 0) {
+        unit.attackTimer = unit.attackRate;
+
+        if (unit.type === "archer") {
+          const speed = UNIT_DEF.archer.projSpeed;
+          const vx = (unit.side === "A" ? 1 : -1) * speed;
+          st.projectiles.push({
+            x: unit.x + (unit.side === "A" ? 10 : -10),
+            side: unit.side,
+            vx,
+            dmg: unit.dmg
+          });
+        } else {
+          if (inRangeEnemy) target.hp -= unit.dmg;
+          else enemyBase.hp -= unit.dmg;
+        }
+      }
+    } else {
+      // move
+      unit.x += dir * unit.speed * dt;
+      unit.x = clamp(unit.x, 30, LANE_W - 30);
+    }
+  }
+
+  // ── Projectiles (archer arrows) ───────────────────────────────────
+  for (let i = st.projectiles.length - 1; i >= 0; i--) {
+    const p = st.projectiles[i];
+    p.x += p.vx * dt;
+
+    const es = p.side === "A" ? "B" : "A";
+    const enemies = st.units.filter(u => u.side === es && u.hp > 0);
+
+    let hit = null;
+    let best = 999999;
+    for (const e of enemies) {
+      const d = Math.abs(e.x - p.x);
+      if (d < 14 && d < best) { best = d; hit = e; }
+    }
+
+    if (hit) {
+      hit.hp -= p.dmg;
+      st.projectiles.splice(i, 1);
+      continue;
+    }
+
+    const base = st.bases[es];
+    if (Math.abs(base.x - p.x) < 18) {
+      base.hp -= p.dmg;
+      st.projectiles.splice(i, 1);
+      continue;
+    }
+
+    if (p.x < -80 || p.x > LANE_W + 80) st.projectiles.splice(i, 1);
+  }
+
+  // ── Cleanup dead ─────────────────────────────────────────────────
+  for (let i = st.units.length - 1; i >= 0; i--) {
+    if (st.units[i].hp <= 0) {
+      st.pop[st.units[i].side] = Math.max(0, st.pop[st.units[i].side] - UNIT_DEF[st.units[i].type].pop);
+      st.units.splice(i, 1);
+    }
+  }
+
+  // ── Win condition ────────────────────────────────────────────────
+  if (st.bases.A.hp <= 0) st.winner = "B";
+  if (st.bases.B.hp <= 0) st.winner = "A";
+}
+
+// ───────────────────────── Rooms + WS ─────────────────────────────
+const rooms = new Map();
+function makeRoomId() { return Math.random().toString(36).slice(2, 8).toUpperCase(); }
+
 setInterval(() => {
   const t = now();
   for (const [roomId, room] of rooms) {
-    if (!room.clients.A && !room.clients.B) { rooms.delete(roomId); continue; }
-    const dt = clamp(t - room.lastTick, 0, 100);
-    room.lastTick = t;
-    stepGame(room.state, dt);
-
-    const msg = JSON.stringify({ type: "state", state: room.state });
-    for (const side of ["A", "B"]) {
-      const ws = room.clients[side];
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(msg);
+    if (room.clients.length === 0) {
+      rooms.delete(roomId);
+      continue;
     }
+    const dt = Math.min(120, t - room.lastTick);
+    room.lastTick = t;
+
+    stepGame(room.state, dt);
+    broadcast(room, { type: "state", roomId, state: room.state });
   }
 }, 50);
 
-// ─── WebSocket ────────────────────────────────────────────────────────────────
-const clients = new Map(); // ws -> { roomId, role }
-
 wss.on("connection", (ws) => {
-  clients.set(ws, { roomId: null, role: null });
+  ws.roomId = null;
+  ws.role = null;
 
   ws.on("message", (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
-    const meta = clients.get(ws);
 
     if (msg.type === "create") {
-      const roomId = Math.random().toString(36).slice(2, 8).toUpperCase();
-      rooms.set(roomId, makeRoom(ws));
-      meta.roomId = roomId; meta.role = "A";
+      const roomId = makeRoomId();
+      rooms.set(roomId, { clients: [ws], state: makeState(), lastTick: now() });
+      ws.roomId = roomId;
+      ws.role = "A";
       ws.send(JSON.stringify({ type: "joined", roomId, role: "A" }));
       return;
     }
 
     if (msg.type === "join") {
       const roomId = String(msg.roomId || "").trim().toUpperCase();
-      const room   = rooms.get(roomId);
-      if (!room) return ws.send(JSON.stringify({ type: "error", msg: "Комната не найдена" }));
-      if (room.clients.B) return ws.send(JSON.stringify({ type: "error", msg: "Комната заполнена" }));
-      room.clients.B = ws;
-      meta.roomId = roomId; meta.role = "B";
+      const room = rooms.get(roomId);
+      if (!room) return ws.send(JSON.stringify({ type: "error", msg: "Room not found" }));
+      if (room.clients.length >= 2) return ws.send(JSON.stringify({ type: "error", msg: "Room full" }));
+      room.clients.push(ws);
+      ws.roomId = roomId;
+      ws.role = "B";
       ws.send(JSON.stringify({ type: "joined", roomId, role: "B" }));
-      // notify A
-      if (room.clients.A?.readyState === WebSocket.OPEN)
-        room.clients.A.send(JSON.stringify({ type: "opponent_joined" }));
+      broadcast(room, { type: "info", msg: "Player B joined" });
       return;
     }
 
-    if (msg.type === "reset") {
-      const room = rooms.get(meta.roomId);
-      if (!room) return;
-      room.state = makeState();
-      for (const side of ["A","B"]) {
-        const ws2 = room.clients[side];
-        if (ws2?.readyState === WebSocket.OPEN) ws2.send(JSON.stringify({ type: "reset_ok" }));
+    const room = rooms.get(ws.roomId);
+    if (!room || !ws.role) return;
+
+    if (msg.type === "spawn") {
+      const r = spawnUnit(room.state, ws.role, msg.unitType);
+      if (r !== true) {
+        const text = r === "nogold" ? "Не хватает золота" :
+                     r === "nopop"  ? "Лимит армии" :
+                     r === "ended"  ? "Игра завершена" : "Ошибка";
+        ws.send(JSON.stringify({ type: "error", msg: text }));
       }
       return;
     }
 
-    if (msg.type === "spawn") {
-      const room = rooms.get(meta.roomId);
-      if (!room || !meta.role || room.state.winner) return;
-      const result = spawnUnit(room.state, meta.role, msg.unitType);
-      if (result === "nogold") ws.send(JSON.stringify({ type: "error", msg: "Недостаточно золота" }));
-      if (result === "nopop")  ws.send(JSON.stringify({ type: "error", msg: "Лимит юнитов" }));
+    if (msg.type === "mode") {
+      room.state.mode[ws.role] = (msg.value === "attack") ? "attack" : "defend";
       return;
     }
 
-    if (msg.type === "mode") {
-      const room = rooms.get(meta.roomId);
-      if (!room || !meta.role) return;
-      room.state.mode[meta.role] = msg.value; // attack | defend
+    if (msg.type === "reset") {
+      room.state = makeState();
+      broadcast(room, { type: "info", msg: "Reset" });
       return;
     }
   });
 
   ws.on("close", () => {
-    const meta = clients.get(ws);
-    if (meta?.roomId) {
-      const room = rooms.get(meta.roomId);
-      if (room) {
-        if (meta.role === "A") room.clients.A = null;
-        if (meta.role === "B") room.clients.B = null;
-
-        // Notify the remaining player that opponent disconnected
-        const otherSide = meta.role === "A" ? "B" : "A";
-        const otherWs = room.clients[otherSide];
-        if (otherWs && otherWs.readyState === WebSocket.OPEN) {
-          otherWs.send(JSON.stringify({ type: "opponent_left" }));
-        }
-
-        // If both players gone, delete room immediately
-        if (!room.clients.A && !room.clients.B) {
-          rooms.delete(meta.roomId);
-        }
-      }
-    }
-    clients.delete(ws);
+    const room = rooms.get(ws.roomId);
+    if (!room) return;
+    room.clients = room.clients.filter(c => c !== ws);
   });
 });
 
-server.listen(PORT, () => console.log("🗡  Stick War server on port", PORT));
+server.listen(PORT, () => console.log("Listening on", PORT));
