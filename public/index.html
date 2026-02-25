@@ -742,9 +742,21 @@ function send(obj){ if(ws?.readyState===1) ws.send(JSON.stringify(obj)); }
 
 function handleMsg(msg){
   if(msg.type==="joined"){
-    roomId=msg.roomId; myRole=msg.role;
-    if(myRole==="A"){ document.getElementById("codeDisplay").textContent=roomId; showScreen("sWait"); }
-    else startGame();
+  roomId=msg.roomId; myRole=msg.role;
+
+  // если сервер говорит что комната уже готова (оба игрока), стартуем сразу
+  if(msg.ready){ startGame(); return; }
+
+  if(myRole==="A"){
+    document.getElementById("codeDisplay").textContent=roomId;
+    showScreen("sWait");
+  } else {
+    startGame();
+  }
+}
+
+if(msg.type==="ready") startGame();
+if(msg.type==="opponent_joined") startGame();
   }
   if(msg.type==="opponent_joined") startGame();
   if(msg.type==="state"){
